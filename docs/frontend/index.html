@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+      :root {
+        color-scheme: light;
+        font-family: "Fraunces", "Iowan Old Style", serif;
+        background: #f5f0e6;
+        color: #1b1713;
+      }
+      * { box-sizing: border-box; }
+      body { margin: 0; }
+      a { color: inherit; }
+      input, button {
+        font: inherit;
+      }
+      .sr-only {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        white-space: nowrap;
+        border: 0;
+      }
+      .docs-search-form {
+        display: grid;
+        gap: 0.65rem;
+        width: 100%;
+      }
+      .docs-search-form--compact {
+        grid-template-columns: minmax(0, 1fr) auto;
+        align-items: center;
+        max-width: 420px;
+      }
+      .docs-search-label {
+        font-size: 0.9rem;
+        letter-spacing: 0.04em;
+      }
+      .docs-search-input {
+        width: 100%;
+        min-width: 0;
+        padding: 0.8rem 1rem;
+        border-radius: 999px;
+        border: 1px solid rgba(27, 23, 19, 0.18);
+        background: rgba(255, 251, 245, 0.96);
+      }
+      .docs-search-button {
+        padding: 0.8rem 1.1rem;
+        border-radius: 999px;
+      }
+      .docs-markdown {
+        line-height: 1.7;
+      }
+      .docs-markdown > :first-child {
+        margin-top: 0;
+      }
+      .docs-markdown h1,
+      .docs-markdown h2,
+      .docs-markdown h3,
+      .docs-markdown h4 {
+        line-height: 1.2;
+        margin-top: 1.8em;
+        margin-bottom: 0.55em;
+      }
+      .docs-markdown p,
+      .docs-markdown ul,
+      .docs-markdown ol,
+      .docs-markdown blockquote,
+      .docs-markdown table {
+        margin: 1em 0;
+      }
+      .docs-markdown pre {
+        overflow-x: auto;
+        background: #201913;
+        color: #f7efe3;
+        padding: 1rem 1.1rem;
+        border-radius: 1rem;
+      }
+      .docs-markdown .hljs {
+        display: block;
+        overflow-x: auto;
+        background: transparent;
+        color: #f7efe3;
+      }
+      .docs-markdown .hljs-comment,
+      .docs-markdown .hljs-quote {
+        color: #b8a18f;
+      }
+      .docs-markdown .hljs-keyword,
+      .docs-markdown .hljs-selector-tag,
+      .docs-markdown .hljs-literal,
+      .docs-markdown .hljs-section,
+      .docs-markdown .hljs-link {
+        color: #f4b184;
+      }
+      .docs-markdown .hljs-string,
+      .docs-markdown .hljs-title,
+      .docs-markdown .hljs-name,
+      .docs-markdown .hljs-attribute,
+      .docs-markdown .hljs-attr,
+      .docs-markdown .hljs-symbol,
+      .docs-markdown .hljs-bullet,
+      .docs-markdown .hljs-addition {
+        color: #c7e7a4;
+      }
+      .docs-markdown .hljs-number,
+      .docs-markdown .hljs-meta,
+      .docs-markdown .hljs-meta-keyword,
+      .docs-markdown .hljs-template-tag,
+      .docs-markdown .hljs-template-variable {
+        color: #f7d38d;
+      }
+      .docs-markdown .hljs-type,
+      .docs-markdown .hljs-built_in,
+      .docs-markdown .hljs-class .hljs-title {
+        color: #8ed3ff;
+      }
+      .docs-markdown .hljs-variable,
+      .docs-markdown .hljs-params,
+      .docs-markdown .hljs-property {
+        color: #f7efe3;
+      }
+      .docs-markdown code {
+        font-family: "SFMono-Regular", "Menlo", monospace;
+        background: rgba(96, 68, 36, 0.08);
+        padding: 0.15rem 0.35rem;
+        border-radius: 0.35rem;
+      }
+      .docs-markdown pre code {
+        background: transparent;
+        padding: 0;
+      }
+      .docs-markdown blockquote {
+        padding-left: 1rem;
+        border-left: 3px solid rgba(96, 68, 36, 0.3);
+        color: rgba(27, 23, 19, 0.78);
+      }
+      .docs-markdown table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+      .docs-markdown th,
+      .docs-markdown td {
+        border: 1px solid rgba(27, 23, 19, 0.12);
+        padding: 0.65rem 0.8rem;
+        text-align: left;
+      }
+      @media (max-width: 720px) {
+        .docs-search-form--compact {
+          grid-template-columns: 1fr;
+          max-width: none;
+        }
+      }
+      pre {
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+    </style>
+    <!--richie-router-head-->
+    <script type="module" src="./client.tsx"></script>
+  </head>
+  <body>
+    <div id="app"></div>
+  </body>
+</html>

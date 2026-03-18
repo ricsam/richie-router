@@ -1,5 +1,5 @@
 import { Link, Outlet, createFileRoute } from '@richie-router/react';
-import { postCatalog } from '../post-catalog';
+import { usePosts } from '../use-posts';
 
 export const Route = createFileRoute('/posts')({
   component: PostsLayout,
@@ -12,6 +12,8 @@ export const Route = createFileRoute('/posts')({
 });
 
 function PostsLayout() {
+  const { posts, error, isLoading } = usePosts();
+
   return (
     <section
       style={{
@@ -29,8 +31,10 @@ function PostsLayout() {
         }}
         >
           <h2 style={{ marginTop: 0 }}>Posts</h2>
+          {isLoading ? <p>Loading posts...</p> : null}
+          {error ? <p>{error.message}</p> : null}
           <ul style={{ display: 'grid', gap: '0.75rem', padding: 0, listStyle: 'none' }}>
-          {postCatalog.map(post => (
+          {posts.map(post => (
             <li key={post.id}>
               <Link to="/posts/$postId" params={{ postId: post.id }}>
                 {post.title}

@@ -5,16 +5,19 @@
   "type": "module",
   "workspaces": [
     "packages/*",
-    "demo"
+    "demo",
+    "docs"
   ],
   "scripts": {
     "demo:generate": "bun scripts/generate-demo-routes.ts",
-    "demo:build-client": "bun scripts/build-demo-client.ts",
+    "docs:generate": "bun scripts/generate-docs-routes.ts",
     "demo:start": "bun demo/backend/main.tsx",
+    "docs:start": "bun docs/backend/main.tsx",
     "dev": "bun run demo:generate && bun --hot demo/backend/main.tsx",
-    "build": "bun run demo:generate && bun run demo:build-client",
+    "build": "bun run demo:generate && bun run docs:generate",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "bun run demo:generate && bun run demo:build-client && bun test && bun run typecheck"
+    "test:e2e": "bun run demo:generate && bun run docs:generate && playwright test",
+    "test": "bun run test:e2e && bun run typecheck"
   },
   "dependencies": {
     "react": "^19",
@@ -22,6 +25,7 @@
     "zod": "^4"
   },
   "devDependencies": {
+    "@playwright/test": "^1.58.2",
     "@types/bun": "latest",
     "@types/react": "^19",
     "@types/react-dom": "^19",

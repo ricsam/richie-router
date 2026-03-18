@@ -2,28 +2,34 @@ import path from 'node:path';
 import { defineHeadTags, handleRequest } from '@richie-router/server';
 import { routeManifest } from '../shared/route-manifest.gen';
 import { headTagSchema } from '../shared/head-tag-schema';
+import type { DemoPost } from '../shared/posts';
 import indexHtml from '../frontend/index.html';
 
-const posts = [
+const TEMPLATE_PATH = '/__richie-router-template';
+
+const posts: DemoPost[] = [
   {
     id: 'alpha',
     title: 'Alpha Release Notes',
     excerpt: 'The first cut of Richie Router with generated file routes.',
+    body: 'This page is client-rendered. The document head comes from the backend via a server head tag definition.',
     coverImage: 'https://example.com/images/alpha.png',
   },
   {
     id: 'typed-nav',
     title: 'Typed Navigation Deep Dive',
     excerpt: 'Making Link and navigate route-aware without manual annotations.',
+    body: 'Route params and search stay type-safe even though the router is now fully client-rendered.',
     coverImage: 'https://example.com/images/typed-nav.png',
   },
   {
     id: 'head-tags',
     title: 'Server Head Tags',
     excerpt: 'Resolving SEO metadata on the server without rendering React there.',
+    body: 'The backend matches the route manifest, resolves head tags, and returns the SPA shell with enriched head markup.',
     coverImage: 'https://example.com/images/head-tags.png',
   },
-] as const;
+];
 
 export const headTags = defineHeadTags(routeManifest, headTagSchema, {
   'app-shell': {
@@ -71,15 +77,24 @@ export function startDemoServer(options?: { port?: number }) {
   return Bun.serve({
     port: options?.port ?? 3000,
     routes: {
-      '/': indexHtml
+      [TEMPLATE_PATH]: indexHtml,
     },
     async fetch(request) {
+      const url = new URL(request.url);
 
-      const indexUrl = new URL(request.url);
-      indexUrl.pathname = '/';
+      if (url.pathname === '/api/posts') {
+        return new Response(JSON.stringify(posts), {
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        });
+      }
 
-      const htmlTemplate = (await (await fetch(indexUrl)).text()).toString()
-      
+      const templateUrl = new URL(request.url);
+      templateUrl.pathname = TEMPLATE_PATH;
+
+      const htmlTemplate = await (await fetch(templateUrl)).text();
+
       const handled = await handleRequest(request, {
         routeManifest,
         headTags,
@@ -92,21 +107,15 @@ export function startDemoServer(options?: { port?: number }) {
       if (handled.matched) {
         return handled.response;
       }
-      const url = new URL(request.url);
-
-      if (url.pathname === '/api/posts') {
-        return new Response(JSON.stringify(posts), {
-          headers: {
-            'Content-Type': 'application/json',
-          },
-        });
-      }
 
       return new Response('Not Found', { status: 404 });
     },
-    'development': process.env.NODE_ENV==='production' ? false : {
-      'console': true,
-      'hmr': true,
-    }
+    development:
+      process.env.NODE_ENV === 'production'
+        ? false
+        : {
+            console: true,
+            hmr: true,
+          },
   });
 }

@@ -1,10 +1,10 @@
-# Richie Router
+# @richie-router/
 
-Richie Router is a file-based, type-safe React router for Bun + TypeScript. It is built around one hard architectural boundary: apps are client-rendered, and the backend never imports or executes frontend route modules. Richie Router handles route matching, navigation, generated route types, and document head resolution, but it does not provide route-level data loading or React SSR.
+`@richie-router/` is a file-based, type-safe React router for Bun + TypeScript. It is built around one hard architectural boundary: apps are client-rendered, and the backend never imports or executes frontend route modules. `@richie-router/` handles route matching, navigation, generated route types, and document head resolution, but it does not provide route-level data loading or React SSR.
 
 - Website: [docs.ricsam.dev/richie-router](https://docs.ricsam.dev/richie-router)
 - Packages: `@richie-router/core`, `@richie-router/react`, `@richie-router/server`, `@richie-router/tooling`
-- Apps: `demo/` exercises the router end to end, and `docs/` uses Richie Router plus Richie RPC to browse the real markdown files in this repository
+- Apps: `demo/` exercises the router end to end, and `docs/` uses `@richie-router/` plus Richie RPC to browse the real markdown files in this repository
 
 ## Quick Start
 
@@ -22,7 +22,7 @@ bun run test
 
 ## Architecture
 
-Richie Router is split into four packages:
+`@richie-router/` is split into four packages:
 
 - `@richie-router/react` for the client router runtime, components, hooks, and head reconciliation
 - `@richie-router/core` for shared route, search, and head-tag types plus matching utilities
@@ -38,7 +38,7 @@ The important boundary is:
 
 ## Generated Files
 
-Richie Router generates two artifacts from your route files:
+`@richie-router/` generates two artifacts from your route files:
 
 1. `route-tree.gen.ts`
 
@@ -186,7 +186,7 @@ export const headTags = defineHeadTags(routeManifest, headTagSchema, {
     staleTime: 60_000,
     head: async () => ({
       meta: [
-        { title: 'Richie Router Demo' },
+        { title: '@richie-router/ Demo' },
         { name: 'description', content: 'SPA routing with server head tags.' },
       ],
     }),
@@ -269,7 +269,7 @@ Required template shape:
 </html>
 ```
 
-`<!--richie-router-head-->` is the only Richie Router placeholder. On page requests, the server injects the merged head tags for all matched `head: 'key'` routes plus a small bootstrap script that sets `window.__RICHIE_ROUTER_HEAD__`. On head API requests, the server returns JSON shaped like `{ head, staleTime }`.
+`<!--richie-router-head-->` is the only `@richie-router/` placeholder. On page requests, the server injects the merged head tags for all matched `head: 'key'` routes plus a small bootstrap script that sets `window.__RICHIE_ROUTER_HEAD__`. On head API requests, the server returns JSON shaped like `{ head, staleTime }`.
 
 Head merging follows a few simple rules:
 
@@ -327,11 +327,11 @@ Public hooks include:
 
 Route instances also expose `Route.useParams()`, `Route.useSearch()`, `Route.useNavigate()`, and `Route.useMatch()`.
 
-Preloading and scroll restoration are router concerns only. Richie Router can preload route matching and head tags, but it does not preload page data.
+Preloading and scroll restoration are router concerns only. `@richie-router/` can preload route matching and head tags, but it does not preload page data.
 
-## What Richie Router Is Not
+## What `@richie-router/` Is Not
 
-Richie Router is intentionally:
+`@richie-router/` is intentionally:
 
 - client-rendered (but can create the the `<head>` tag on the server)
 - type-safe for route params and search

@@ -37,7 +37,6 @@
     "build:packages": "bun run scripts/build-packages.ts",
     "restore:packages": "bun run scripts/restore-packages.ts",
     "version-packages": "bunx changeset version && bun install --lockfile-only",
-    "release": "bun run scripts/release-packages.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test:e2e": "bun run demo:generate && bun run docs:generate && playwright test",
     "test": "bun run test:e2e && bun run typecheck"

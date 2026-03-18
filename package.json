@@ -2,6 +2,24 @@
   "name": "richie-router-workspace",
   "version": "0.1.0",
   "private": true,
+  "description": "File-based, type-safe React router for Bun + TypeScript",
+  "author": "Richie <oss@ricsam.dev>",
+  "homepage": "https://docs.ricsam.dev/richie-router",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ricsam/richie-router.git"
+  },
+  "bugs": {
+    "url": "https://github.com/ricsam/richie-router/issues"
+  },
+  "keywords": [
+    "router",
+    "react",
+    "typescript",
+    "bun",
+    "file-based-routing",
+    "type-safe"
+  ],
   "type": "module",
   "workspaces": [
     "packages/*",
@@ -9,12 +27,17 @@
     "docs"
   ],
   "scripts": {
+    "changeset": "bunx changeset",
     "demo:generate": "bun scripts/generate-demo-routes.ts",
     "docs:generate": "bun scripts/generate-docs-routes.ts",
     "demo:start": "bun demo/backend/main.tsx",
     "docs:start": "bun docs/backend/main.tsx",
     "dev": "bun run demo:generate && bun --hot demo/backend/main.tsx",
     "build": "bun run demo:generate && bun run docs:generate",
+    "build:packages": "bun run scripts/build-packages.ts",
+    "restore:packages": "bun run scripts/restore-packages.ts",
+    "version-packages": "bunx changeset version && bun install --lockfile-only",
+    "release": "bun run scripts/release-packages.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test:e2e": "bun run demo:generate && bun run docs:generate && playwright test",
     "test": "bun run test:e2e && bun run typecheck"
@@ -25,6 +48,7 @@
     "zod": "^4"
   },
   "devDependencies": {
+    "@changesets/cli": "^2.29.7",
     "@playwright/test": "^1.58.2",
     "@types/bun": "latest",
     "@types/react": "^19",

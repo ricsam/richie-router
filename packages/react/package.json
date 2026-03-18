@@ -1,13 +1,16 @@
 {
   "name": "@richie-router/react",
-  "version": "0.1.0",
+  "version": "0.1.1",
+  "description": "React runtime, components, and hooks for Richie Router",
   "type": "module",
+  "sideEffects": false,
   "exports": {
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@richie-router/core": "workspace:*",
-    "react": "^19",
-    "react-dom": "^19"
+    "@richie-router/core": "workspace:*"
+  },
+  "peerDependencies": {
+    "react": "^19"
   }
 }

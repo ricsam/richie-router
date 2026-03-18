@@ -1,14 +1,15 @@
 {
   "name": "@richie-router/tooling",
-  "version": "0.1.0",
+  "version": "0.1.1",
+  "description": "Route generation and build-tool integrations for Richie Router",
   "type": "module",
+  "sideEffects": false,
   "exports": {
     ".": "./src/index.ts",
     "./esbuild": "./src/esbuild.ts",
     "./vite": "./src/vite.ts"
   },
   "dependencies": {
-    "@richie-router/core": "workspace:*",
-    "esbuild": "^0.25.11"
+    "@richie-router/core": "workspace:*"
   }
 }

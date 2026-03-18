@@ -1,7 +1,9 @@
 {
   "name": "@richie-router/server",
-  "version": "0.1.0",
+  "version": "0.1.1",
+  "description": "Server helpers for Richie Router head tags and document handling",
   "type": "module",
+  "sideEffects": false,
   "exports": {
     ".": "./src/index.ts"
   },

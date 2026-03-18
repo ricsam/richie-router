@@ -1,0 +1,15 @@
+{
+  "name": "richie-router-demo",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@richie-router/core": "workspace:*",
+    "@richie-router/react": "workspace:*",
+    "@richie-router/server": "workspace:*",
+    "@richie-router/tooling": "workspace:*",
+    "react": "^19",
+    "react-dom": "^19",
+    "zod": "^4"
+  }
+}

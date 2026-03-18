@@ -1,21 +1,31 @@
 {
-  "name": "bun-react-template",
+  "name": "richie-router-workspace",
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "workspaces": [
+    "packages/*",
+    "demo"
+  ],
   "scripts": {
-    "dev": "bun --hot src/index.ts",
-    "build": "bun build ./src/index.html --outdir=dist --sourcemap --target=browser --minify --define:process.env.NODE_ENV='\"production\"' --env='BUN_PUBLIC_*'",
-    "start": "NODE_ENV=production bun src/index.ts"
+    "demo:generate": "bun scripts/generate-demo-routes.ts",
+    "demo:build-client": "bun scripts/build-demo-client.ts",
+    "demo:start": "bun demo/backend/main.tsx",
+    "dev": "bun run demo:generate && bun --hot demo/backend/main.tsx",
+    "build": "bun run demo:generate && bun run demo:build-client",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "bun run demo:generate && bun run demo:build-client && bun test && bun run typecheck"
   },
   "dependencies": {
     "react": "^19",
-    "react-dom": "^19"
+    "react-dom": "^19",
+    "zod": "^4"
   },
   "devDependencies": {
+    "@types/bun": "latest",
     "@types/react": "^19",
     "@types/react-dom": "^19",
-    "@types/bun": "latest",
+    "esbuild": "^0.25.11",
     "typescript": "^5.9.3"
   }
 }

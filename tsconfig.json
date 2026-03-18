@@ -1,36 +1,41 @@
 {
   "compilerOptions": {
-    // Environment setup & latest features
     "lib": ["ESNext", "DOM"],
     "target": "ESNext",
-    "module": "Preserve",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
     "moduleDetection": "force",
     "jsx": "react-jsx",
-    "allowJs": true,
-
-    // Bundler mode
-    "moduleResolution": "bundler",
     "allowImportingTsExtensions": true,
     "verbatimModuleSyntax": true,
     "noEmit": true,
-
-    // Best practices
     "strict": true,
     "skipLibCheck": true,
     "noFallthroughCasesInSwitch": true,
     "noUncheckedIndexedAccess": true,
     "noImplicitOverride": true,
-
     "baseUrl": ".",
     "paths": {
-      "@/*": ["./src/*"]
+      "@richie-router/core": ["./packages/core/src/index.ts"],
+      "@richie-router/react": ["./packages/react/src/index.ts"],
+      "@richie-router/server": ["./packages/server/src/index.ts"],
+      "@richie-router/tooling": ["./packages/tooling/src/index.ts"],
+      "@richie-router/tooling/esbuild": ["./packages/tooling/src/esbuild.ts"],
+      "@richie-router/tooling/vite": ["./packages/tooling/src/vite.ts"]
     },
-
-    // Some stricter flags (disabled by default)
-    "noUnusedLocals": false,
-    "noUnusedParameters": false,
-    "noPropertyAccessFromIndexSignature": false
+    "types": ["bun"]
   },
-
+  "include": [
+    "bun-env.d.ts",
+    "packages/**/*.ts",
+    "packages/**/*.tsx",
+    "demo/**/*.ts",
+    "demo/**/*.tsx",
+    "scripts/**/*.ts",
+    "tests/**/*.ts",
+    "tests/**/*.tsx",
+    "typecheck/**/*.ts",
+    "typecheck/**/*.tsx"
+  ],
   "exclude": ["dist", "node_modules"]
 }

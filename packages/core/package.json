@@ -1,0 +1,8 @@
+{
+  "name": "@richie-router/core",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  }
+}

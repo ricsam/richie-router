@@ -1,0 +1,14 @@
+{
+  "name": "@richie-router/tooling",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./esbuild": "./src/esbuild.ts",
+    "./vite": "./src/vite.ts"
+  },
+  "dependencies": {
+    "@richie-router/core": "workspace:*",
+    "esbuild": "^0.25.11"
+  }
+}

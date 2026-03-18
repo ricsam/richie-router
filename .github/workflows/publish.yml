@@ -35,8 +35,11 @@ jobs:
       - run: bun install --frozen-lockfile
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '24'
           registry-url: 'https://registry.npmjs.org'
+      - name: Update npm
+        run: npm install -g npm@latest
+      - run: npm -v
       - run: bun run build:packages
       - run: npx changeset publish --access=public --registry=https://registry.npmjs.org/
         env:

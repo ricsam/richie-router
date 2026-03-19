@@ -1,6 +1,29 @@
 import { expect, test } from '@playwright/test';
 
 test.describe('demo app', () => {
+  test('resolves head tag loader requests over the head API', async ({ request }) => {
+    const response = await request.get('/head-api/post-detail', {
+      params: {
+        params: JSON.stringify({ postId: 'alpha' }),
+        search: JSON.stringify({}),
+      },
+    });
+    const body = await response.json();
+
+    expect(response.ok()).toBeTruthy();
+    expect(body).toEqual({
+      head: {
+        meta: [
+          { title: 'Alpha Release Notes | Richie Router Demo' },
+          { name: 'description', content: 'The first cut of Richie Router with generated file routes.' },
+          { property: 'og:title', content: 'Alpha Release Notes' },
+          { property: 'og:image', content: 'https://example.com/images/alpha.png' },
+        ],
+      },
+      staleTime: 10_000,
+    });
+  });
+
   test('injects server head tags into the initial HTML response', async ({ request }) => {
     const response = await request.get('/posts/alpha');
     const html = await response.text();

@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { defineHeadTags, handleRequest } from '@richie-router/server';
+import { defineHeadTags, handleHeadTagRequest, handleRequest } from '@richie-router/server';
 import { routeManifest } from '../shared/route-manifest.gen';
 import { headTagSchema } from '../shared/head-tag-schema';
 import type { DemoPost } from '../shared/posts';
@@ -88,6 +88,15 @@ export function startDemoServer(options?: { port?: number }) {
             'Content-Type': 'application/json',
           },
         });
+      }
+
+      const handledHeadTagRequest = await handleHeadTagRequest(request, {
+        headTags,
+        headBasePath: '/head-api',
+      });
+
+      if (handledHeadTagRequest.matched) {
+        return handledHeadTagRequest.response;
       }
 
       const templateUrl = new URL(request.url);

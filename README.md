@@ -26,7 +26,7 @@ bun run test
 
 - `@richie-router/react` for the client router runtime, components, hooks, and head reconciliation
 - `@richie-router/core` for shared route, search, and head-tag types plus matching utilities
-- `@richie-router/server` for server head-tag definitions and HTML request handling
+- `@richie-router/server` for server head-tag definitions and request handling
 - `@richie-router/tooling` for route generation and build-tool integrations
 
 The important boundary is:
@@ -235,12 +235,19 @@ if (!container) throw new Error('Missing #app container.');
 createRoot(container).render(<RouterProvider router={router} />);
 ```
 
-## Server HTML Handling
+## Server Request Handling
 
-`handleRequest()` always returns the SPA shell. It never renders the React tree.
+`handleHeadTagRequest()` is the scoped helper for the JSON endpoint used by client head-tag loaders. `handleRequest()` handles document requests and still supports head API requests as a convenience.
 
 ```ts
-import { handleRequest } from '@richie-router/server';
+import { handleHeadTagRequest, handleRequest } from '@richie-router/server';
+
+const headHandled = await handleHeadTagRequest(request, {
+  headTags,
+  headBasePath: '/head-api',
+});
+
+if (headHandled.matched) return headHandled.response;
 
 const handled = await handleRequest(request, {
   routeManifest,

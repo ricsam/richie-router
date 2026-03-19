@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { createDocsResponse, generateOpenAPISpec } from '@richie-rpc/openapi';
 import { RouteNotFoundError, ValidationError, createRouter, Status } from '@richie-rpc/server';
-import { defineHeadTags, handleRequest } from '@richie-router/server';
+import { defineHeadTags, handleHeadTagRequest, handleRequest } from '@richie-router/server';
 import indexHtml from '../frontend/index.html';
 import { docsContract } from '../shared/contract';
 import { headTagSchema } from '../shared/head-tag-schema';
@@ -287,6 +287,15 @@ export function startDocsServer(options?: { port?: number }) {
 
           return Response.json({ error: 'Internal Server Error' }, { status: 500 });
         }
+      }
+
+      const handledHeadTagRequest = await handleHeadTagRequest(request, {
+        headTags,
+        headBasePath: '/head-api',
+      });
+
+      if (handledHeadTagRequest.matched) {
+        return handledHeadTagRequest.response;
       }
 
       const templateUrl = new URL(request.url);

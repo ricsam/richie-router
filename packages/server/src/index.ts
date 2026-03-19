@@ -83,6 +83,15 @@ export interface HandleRequestOptions<
   routeBasePath?: string;
 }
 
+export interface HandleHeadTagRequestOptions<
+  TRouteManifest extends AnyRoute,
+  THeadTagSchema extends HeadTagSchemaShape,
+  TDefinitions extends Partial<Record<keyof THeadTagSchema, HeadTagDefinition<any>>>,
+> {
+  headTags: DefinedHeadTags<TRouteManifest, THeadTagSchema, TDefinitions>;
+  headBasePath?: string;
+}
+
 export interface HandleRequestResult {
   matched: boolean;
   response: Response;
@@ -224,6 +233,53 @@ async function resolveMatchedHead<
   return resolveHeadConfig(matches, resolvedHeadByRoute);
 }
 
+export async function handleHeadTagRequest<
+  TRouteManifest extends AnyRoute,
+  THeadTagSchema extends HeadTagSchemaShape,
+  TDefinitions extends Partial<Record<keyof THeadTagSchema, HeadTagDefinition<any>>>,
+>(
+  request: Request,
+  options: HandleHeadTagRequestOptions<TRouteManifest, THeadTagSchema, TDefinitions>,
+): Promise<HandleRequestResult> {
+  const url = new URL(request.url);
+  const headBasePath = options.headBasePath ?? '/head-api';
+
+  if (!url.pathname.startsWith(`${headBasePath}/`)) {
+    return {
+      matched: false,
+      response: new Response('Not Found', { status: 404 }),
+    };
+  }
+
+  const headTagName = decodeURIComponent(url.pathname.slice(headBasePath.length + 1));
+  const params = JSON.parse(url.searchParams.get('params') ?? '{}') as Record<string, string>;
+  const search = JSON.parse(url.searchParams.get('search') ?? '{}');
+
+  try {
+    const result = await executeHeadTag(request, options.headTags, headTagName, params, search);
+    return {
+      matched: true,
+      response: jsonResponse(result),
+    };
+  } catch (error) {
+    if (error instanceof Response) {
+      return {
+        matched: true,
+        response: error,
+      };
+    }
+
+    if (isNotFound(error)) {
+      return {
+        matched: true,
+        response: jsonResponse({ message: 'Not Found' }, { status: 404 }),
+      };
+    }
+
+    throw error;
+  }
+}
+
 export async function handleRequest<
   TRouteManifest extends AnyRoute,
   THeadTagSchema extends HeadTagSchemaShape,
@@ -233,37 +289,14 @@ export async function handleRequest<
   options: HandleRequestOptions<TRouteManifest, THeadTagSchema, TDefinitions>,
 ): Promise<HandleRequestResult> {
   const url = new URL(request.url);
-  const headBasePath = options.headBasePath ?? '/head-api';
   const routeBasePath = options.routeBasePath ?? '/';
+  const handledHeadTagRequest = await handleHeadTagRequest(request, {
+    headTags: options.headTags,
+    headBasePath: options.headBasePath,
+  });
 
-  if (url.pathname.startsWith(`${headBasePath}/`)) {
-    const headTagName = decodeURIComponent(url.pathname.slice(headBasePath.length + 1));
-    const params = JSON.parse(url.searchParams.get('params') ?? '{}') as Record<string, string>;
-    const search = JSON.parse(url.searchParams.get('search') ?? '{}');
-
-    try {
-      const result = await executeHeadTag(request, options.headTags, headTagName, params, search);
-      return {
-        matched: true,
-        response: jsonResponse(result),
-      };
-    } catch (error) {
-      if (error instanceof Response) {
-        return {
-          matched: true,
-          response: error,
-        };
-      }
-
-      if (isNotFound(error)) {
-        return {
-          matched: true,
-          response: jsonResponse({ message: 'Not Found' }, { status: 404 }),
-        };
-      }
-
-      throw error;
-    }
+  if (handledHeadTagRequest.matched) {
+    return handledHeadTagRequest;
   }
 
   if (!url.pathname.startsWith(routeBasePath)) {

@@ -16,7 +16,7 @@ That means there is no route-level data loading API in `@richie-router/` anymore
 
 - `@richie-router/react` — client router, components, hooks, head reconciliation
 - `@richie-router/core` — shared route/head/search types and matching utilities
-- `@richie-router/server` — server head tag registry and HTML request handling
+- `@richie-router/server` — server head tag registry and request handling
 - `@richie-router/tooling` — route generation for both the client tree and the server manifest
 
 The important boundary is:
@@ -328,14 +328,21 @@ The backend may throw:
 
 ---
 
-## 9. HTML Handling
+## 9. Request Handling
 
-`handleRequest()` always returns the SPA shell. It never renders the React tree.
+`handleHeadTagRequest()` is the scoped helper for the JSON endpoint used by client head-tag loaders. `handleRequest()` handles document requests and still supports head API requests as a convenience.
 
 ```ts
-import { handleRequest } from '@richie-router/server';
+import { handleHeadTagRequest, handleRequest } from '@richie-router/server';
 
 const template = await Bun.file('./frontend/index.html').text();
+
+const headHandled = await handleHeadTagRequest(request, {
+  headTags,
+  headBasePath: '/head-api',
+});
+
+if (headHandled.matched) return headHandled.response;
 
 const handled = await handleRequest(request, {
   routeManifest,
@@ -635,6 +642,7 @@ Routing:
 Server:
 
 - `defineHeadTags`
+- `handleHeadTagRequest`
 - `handleRequest`
 
 ### `@richie-router/tooling`

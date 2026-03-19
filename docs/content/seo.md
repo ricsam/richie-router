@@ -4,20 +4,29 @@
 
 ## Server-resolved head tags
 
-Use a string `head` key in the route file:
+Mark the route in `routerSchema`:
+
+```ts
+export const routerSchema = defineRouterSchema({
+  '/posts/$postId': {
+    serverHead: true,
+  },
+});
+```
+
+The route file stays focused on the client:
 
 ```tsx
 export const Route = createFileRoute('/posts/$postId')({
   component: PostPage,
-  head: 'post-detail',
 });
 ```
 
-Then resolve that key on the backend:
+Then resolve that route ID on the backend:
 
 ```ts
-export const headTags = defineHeadTags(routeManifest, headTagSchema, {
-  'post-detail': {
+export const headTags = defineHeadTags(routeManifest, routerSchema, {
+  '/posts/$postId': {
     staleTime: 10_000,
     head: async ({ params }) => {
       const post = await loadPostMeta(params.postId);
@@ -40,7 +49,7 @@ export const headTags = defineHeadTags(routeManifest, headTagSchema, {
 
 ## Client-only head tags
 
-If the metadata does not need to be present in the initial HTML response, use a static object or a function:
+If the metadata does not need to be present in the initial HTML response, use a static object or a function in the route file:
 
 ```tsx
 export const Route = createFileRoute('/about')({

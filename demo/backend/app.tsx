@@ -1,7 +1,6 @@
-import path from 'node:path';
 import { defineHeadTags, handleHeadTagRequest, handleRequest } from '@richie-router/server';
 import { routeManifest } from '../shared/route-manifest.gen';
-import { headTagSchema } from '../shared/head-tag-schema';
+import { routerSchema } from '../shared/router-schema';
 import type { DemoPost } from '../shared/posts';
 import indexHtml from '../frontend/index.html';
 
@@ -31,8 +30,8 @@ const posts: DemoPost[] = [
   },
 ];
 
-export const headTags = defineHeadTags(routeManifest, headTagSchema, {
-  'app-shell': {
+export const headTags = defineHeadTags(routeManifest, routerSchema, {
+  __root__: {
     staleTime: 60_000,
     head: async () => ({
       meta: [
@@ -41,7 +40,7 @@ export const headTags = defineHeadTags(routeManifest, headTagSchema, {
       ],
     }),
   },
-  'post-detail': {
+  '/posts/$postId': {
     staleTime: 10_000,
     head: async ({ params }) => {
       const post = posts.find(entry => entry.id === params.postId);
@@ -59,7 +58,7 @@ export const headTags = defineHeadTags(routeManifest, headTagSchema, {
       };
     },
   },
-  'search-page': {
+  '/search': {
     staleTime: 5_000,
     head: async ({ search }) => ({
       meta: [

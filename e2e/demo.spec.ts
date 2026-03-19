@@ -2,8 +2,9 @@ import { expect, test } from '@playwright/test';
 
 test.describe('demo app', () => {
   test('resolves head tag loader requests over the head API', async ({ request }) => {
-    const response = await request.get('/head-api/post-detail', {
+    const response = await request.get('/head-api', {
       params: {
+        routeId: '/posts/$postId',
         params: JSON.stringify({ postId: 'alpha' }),
         search: JSON.stringify({}),
       },

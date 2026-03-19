@@ -34,10 +34,10 @@ There is no React SSR. The returned HTML is always the SPA shell plus optional s
 `@richie-router/` generates two different artifacts:
 
 1. `route-tree.gen.ts`
-This is the client route tree. It imports the route modules and powers the React router runtime.
+This is the client route tree. It imports the route modules and powers the React router runtime, so it should live in a frontend-only location.
 
 2. `route-manifest.gen.ts`
-This is the server-safe route manifest. It contains only route structure, path relationships, string head tag references, and shared search schemas. It does not import frontend route files.
+This is the server-safe route manifest. It contains route structure, path relationships, and shared route metadata from `routerSchema`. It does not import frontend route files.
 
 Example generation:
 
@@ -46,8 +46,8 @@ import { generateRouteTree } from '@richie-router/tooling';
 
 await generateRouteTree({
   routesDir: './frontend/routes',
-  headTagSchema: './shared/head-tag-schema.ts',
-  output: './shared/route-tree.gen.ts',
+  routerSchema: './shared/router-schema.ts',
+  output: './frontend/route-tree.gen.ts',
   manifestOutput: './shared/route-manifest.gen.ts',
 });
 ```
@@ -103,7 +103,6 @@ import { Link, Outlet, createRootRoute } from '@richie-router/react';
 
 export const Route = createRootRoute({
   component: RootLayout,
-  head: 'app-shell',
 });
 
 function RootLayout() {
@@ -134,7 +133,6 @@ import { createFileRoute } from '@richie-router/react';
 
 export const Route = createFileRoute('/posts/$postId')({
   component: PostPage,
-  head: 'post-detail',
 });
 ```
 
@@ -145,7 +143,6 @@ import { createRootRoute } from '@richie-router/react';
 
 export const Route = createRootRoute({
   component: RootLayout,
-  head: 'app-shell',
 });
 ```
 
@@ -159,15 +156,12 @@ interface RouteOptions<TPath extends string, TSearch> {
   notFoundComponent?: React.ComponentType;
 
   head?:
-    | string
     | HeadConfig
     | ((ctx: {
         params: ResolveAllParams<TPath>;
         search: TSearch;
         matches: RouteMatch[];
       }) => HeadConfig);
-
-  validateSearch?: (raw: Record<string, unknown>) => TSearch;
 
   beforeLoad?: (ctx: {
     location: ParsedLocation;
@@ -185,36 +179,38 @@ interface RouteOptions<TPath extends string, TSearch> {
 
 ### Meaning of `head`
 
-`head` has three modes:
+`head` is client-only:
 
-1. `head: 'post-detail'`
-Server-resolved head tags. The backend uses `defineHeadTags(...)` for this key. The same key is also used on client navigation.
-
-2. `head: { ... }`
+1. `head: { ... }`
 Client-only static head tags.
 
-3. `head: ({ params, search, matches }) => ({ ... })`
+2. `head: ({ params, search, matches }) => ({ ... })`
 Client-only computed head tags.
 
 The server never evaluates route head functions or imports route modules to read static route head objects.
 
 ---
 
-## 6. Shared Head Tag Schema
+## 6. Shared Router Schema
 
-The shared schema connects route `head: 'key'` declarations to typed search params for both:
+The shared schema connects route IDs to typed search params and optional `serverHead: true` flags for both:
 
 - client navigation types
-- backend head tag definitions
+- backend head definitions
 
 ```ts
 import { z } from 'zod';
-import { defineHeadTagSchema } from '@richie-router/core';
+import { defineRouterSchema } from '@richie-router/core';
 
-export const headTagSchema = defineHeadTagSchema({
-  'app-shell': {},
-  'post-detail': {},
-  'search-page': {
+export const routerSchema = defineRouterSchema({
+  __root__: {
+    serverHead: true,
+  },
+  '/posts/$postId': {
+    serverHead: true,
+  },
+  '/search': {
+    serverHead: true,
     searchSchema: z.object({
       query: z.string().default('router'),
       limit: z.coerce.number().default(5),
@@ -222,10 +218,10 @@ export const headTagSchema = defineHeadTagSchema({
   },
 });
 
-export type HeadTagSchema = typeof headTagSchema;
+export type RouterSchema = typeof routerSchema;
 ```
 
-If a route references a head tag key with a `searchSchema`, that schema feeds into the generated route types. `Link`, `navigate`, and `Route.useSearch()` all become aware of that search shape.
+If a route has a `searchSchema`, that schema feeds into the generated route types. `Link`, `navigate`, and `Route.useSearch()` all become aware of that search shape.
 
 ---
 
@@ -233,7 +229,7 @@ If a route references a head tag key with a `searchSchema`, that schema feeds in
 
 ```tsx
 import { createRouter } from '@richie-router/react';
-import { routeTree } from '../shared/route-tree.gen';
+import { routeTree } from './route-tree.gen';
 
 export const router = createRouter({
   routeTree,
@@ -267,10 +263,10 @@ Backend head tags are defined with `defineHeadTags(...)`.
 ```ts
 import { defineHeadTags } from '@richie-router/server';
 import { routeManifest } from '../shared/route-manifest.gen';
-import { headTagSchema } from '../shared/head-tag-schema';
+import { routerSchema } from '../shared/router-schema';
 
-export const headTags = defineHeadTags(routeManifest, headTagSchema, {
-  'app-shell': {
+export const headTags = defineHeadTags(routeManifest, routerSchema, {
+  __root__: {
     staleTime: 60_000,
     head: async () => ({
       meta: [
@@ -280,7 +276,7 @@ export const headTags = defineHeadTags(routeManifest, headTagSchema, {
     }),
   },
 
-  'post-detail': {
+  '/posts/$postId': {
     staleTime: 10_000,
     head: async ({ params }) => {
       const post = await db.posts.findUnique({ where: { id: params.postId } });
@@ -296,7 +292,7 @@ export const headTags = defineHeadTags(routeManifest, headTagSchema, {
     },
   },
 
-  'search-page': {
+  '/search': {
     staleTime: 5_000,
     head: async ({ search }) => ({
       meta: [
@@ -375,7 +371,7 @@ Required template shape:
 
 For page requests, the server injects:
 
-- serialized head tags for all matched `head: 'key'` routes
+- serialized head tags for all matched routes with `serverHead: true`
 - a small bootstrap script that sets `window.__RICHIE_ROUTER_HEAD__`
 
 For head API requests, the server returns JSON:
@@ -396,7 +392,7 @@ For head API requests, the server returns JSON:
 ### Initial document request
 
 1. Backend matches the generated `route-manifest`
-2. Backend resolves string head tags only
+2. Backend resolves server heads for matched routes with `serverHead: true`
 3. Backend injects the merged result into `<!--richie-router-head-->`
 4. Backend returns the SPA shell
 5. Client mounts the app into `#app`
@@ -405,7 +401,7 @@ For head API requests, the server returns JSON:
 
 1. Client matches the route tree
 2. Client runs `beforeLoad`
-3. Client fetches any server head tags for routes with `head: 'key'`
+3. Client fetches any server heads for routes with `serverHead: true`
 4. Client evaluates client-only head objects/functions
 5. Client reconciles managed nodes in `document.head`
 
@@ -618,7 +614,7 @@ Utilities:
 
 Schema:
 
-- `defineHeadTagSchema`
+- `defineRouterSchema`
 
 Head:
 

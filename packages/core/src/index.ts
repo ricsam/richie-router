@@ -4,15 +4,16 @@ export interface SchemaLike<TOutput = unknown> {
   parse(value: unknown): TOutput;
 }
 
-export interface HeadTagSchemaEntry<
+export interface RouterSchemaEntry<
   TSearchSchema extends SchemaLike<any> | undefined = SchemaLike<any> | undefined,
 > {
   searchSchema?: TSearchSchema;
+  serverHead?: true;
 }
 
-export type HeadTagSchemaShape = Record<string, HeadTagSchemaEntry>;
+export type RouterSchemaShape = Record<string, RouterSchemaEntry>;
 
-export function defineHeadTagSchema<const TSchema extends HeadTagSchemaShape>(schema: TSchema): TSchema {
+export function defineRouterSchema<const TSchema extends RouterSchemaShape>(schema: TSchema): TSchema {
   return schema;
 }
 
@@ -22,12 +23,28 @@ type SchemaOutput<TSchema> = TSchema extends { _output: infer TOutput }
     ? TOutput
     : never;
 
-export type InferHeadTagSearchSchema<
-  TSchema extends HeadTagSchemaShape,
-  THeadTagName extends keyof TSchema,
-> = TSchema[THeadTagName] extends { searchSchema: infer TSearchSchema }
-  ? SchemaOutput<TSearchSchema>
+export type InferRouterSearchSchema<
+  TSchema extends RouterSchemaShape,
+  TRouteId extends string,
+> = TRouteId extends keyof TSchema
+  ? TSchema[TRouteId] extends { searchSchema: infer TSearchSchema }
+    ? SchemaOutput<TSearchSchema>
+    : {}
   : {};
+
+export type RouteIdsWithServerHead<TSchema extends RouterSchemaShape> = {
+  [TRouteId in keyof TSchema]: TSchema[TRouteId] extends { serverHead: true } ? TRouteId : never;
+}[keyof TSchema] & string;
+
+export type RouteUsesServerHead<TSchema extends RouterSchemaShape, TRouteId extends string> = TRouteId extends keyof TSchema
+  ? TSchema[TRouteId] extends { serverHead: true }
+    ? true
+    : false
+  : false;
+
+export type ResolveAllParamsForRouteId<TRouteId extends string> = TRouteId extends '__root__'
+  ? ResolveAllParams<'/'>
+  : ResolveAllParams<TRouteId>;
 
 export type Simplify<TValue> = { [TKey in keyof TValue]: TValue[TKey] } & {};
 
@@ -210,14 +227,12 @@ export interface RouteOptions<TPath extends string = string, TSearch = unknown> 
   errorComponent?: AnyComponent;
   notFoundComponent?: AnyComponent;
   head?:
-    | string
     | HeadConfig
     | ((ctx: {
         params: ResolveAllParams<TPath>;
         search: TSearch;
         matches: RouteMatch[];
       }) => HeadConfig);
-  validateSearch?: (raw: Record<string, unknown>) => TSearch;
   beforeLoad?: (ctx: {
     location: ParsedLocation;
     params: ResolveAllParams<TPath>;
@@ -256,6 +271,7 @@ export class RouteNode<
   public parent?: AnyRoute;
   public children: AnyRoute[] = [];
   public searchSchema?: SchemaLike<TSearch>;
+  public serverHead = false;
   public routeTypes?: TFileTypes;
   public readonly isRoot: boolean;
   public readonly options: RouteOptions<TId, TSearch>;
@@ -306,8 +322,13 @@ export class RouteNode<
     >;
   }
 
-  public _setSearchSchema<TSchema extends SchemaLike<TSearch>>(schema: TSchema): this {
+  public _setSearchSchema<TSchema extends SchemaLike<TSearch> | undefined>(schema: TSchema): this {
     this.searchSchema = schema;
+    return this;
+  }
+
+  public _setServerHead(serverHead: boolean | undefined): this {
+    this.serverHead = serverHead === true;
     return this;
   }
 }

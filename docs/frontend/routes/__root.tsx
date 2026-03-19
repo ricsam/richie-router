@@ -3,7 +3,6 @@ import { DocsSearchForm } from '../search-form';
 
 export const Route = createRootRoute({
   component: RootLayout,
-  head: 'docs-shell',
 });
 
 function NavLink(props: Parameters<typeof Link>[0]) {

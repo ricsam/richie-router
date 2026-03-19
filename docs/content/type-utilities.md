@@ -6,7 +6,7 @@
 
 ```ts
 import type { RouteById, RoutePaths, NavigateOptions, LinkProps } from '@richie-router/react';
-import type { InferHeadTagSearchSchema, ResolveAllParams } from '@richie-router/core';
+import type { InferRouterSearchSchema, ResolveAllParams } from '@richie-router/core';
 ```
 
 Useful cases:
@@ -14,7 +14,7 @@ Useful cases:
 - `RoutePaths` for constraining route targets
 - `NavigateOptions<'/posts/$postId'>` for helper functions that forward navigation
 - `ResolveAllParams<'/posts/$postId'>` for typed path params in shared code
-- `InferHeadTagSearchSchema<typeof headTagSchema, 'search-page'>` for reusing the schema output type
+- `InferRouterSearchSchema<typeof routerSchema, '/search'>` for reusing the schema output type
 
 ## Route APIs are usually enough
 

@@ -8,14 +8,15 @@ The tooling step produces two files:
 
 - `route-tree.gen.ts` for the client router
 - `route-manifest.gen.ts` for the backend head-tag matcher
+- `router-schema.ts` for shared search schemas and server-head flags
 
 ```ts
 import { generateRouteTree } from '@richie-router/tooling';
 
 await generateRouteTree({
   routesDir: './frontend/routes',
-  headTagSchema: './shared/head-tag-schema.ts',
-  output: './shared/route-tree.gen.ts',
+  routerSchema: './shared/router-schema.ts',
+  output: './frontend/route-tree.gen.ts',
   manifestOutput: './shared/route-manifest.gen.ts',
 });
 ```
@@ -24,7 +25,7 @@ await generateRouteTree({
 
 ```tsx
 import { createRouter } from '@richie-router/react';
-import { routeTree } from '../shared/route-tree.gen';
+import { routeTree } from './route-tree.gen';
 
 export const router = createRouter({
   routeTree,

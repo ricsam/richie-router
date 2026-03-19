@@ -3,7 +3,6 @@ import { usePosts } from '../use-posts';
 
 export const Route = createFileRoute('/posts/$postId')({
   component: PostDetailPage,
-  head: 'post-detail',
 });
 
 function PostDetailPage() {

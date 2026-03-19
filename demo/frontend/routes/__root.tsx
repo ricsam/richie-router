@@ -2,7 +2,6 @@ import { Link, Outlet, createRootRoute } from '@richie-router/react';
 
 export const Route = createRootRoute({
   component: RootLayout,
-  head: 'app-shell',
 });
 
 function NavLink(props: Parameters<typeof Link>[0]) {

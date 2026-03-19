@@ -1,12 +1,6 @@
-import { z } from 'zod';
 import { createFileRoute } from '@richie-router/react';
 
-const dashboardSearchSchema = z.object({
-  auth: z.coerce.boolean().default(false),
-});
-
 export const Route = createFileRoute('/_auth/dashboard')({
-  validateSearch: raw => dashboardSearchSchema.parse(raw),
   component: DashboardPage,
   head: {
     meta: [

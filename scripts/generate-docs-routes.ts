@@ -3,7 +3,7 @@ import { generateRouteTree } from '@richie-router/tooling';
 
 await generateRouteTree({
   routesDir: path.resolve('docs/frontend/routes'),
-  headTagSchema: path.resolve('docs/shared/head-tag-schema.ts'),
-  output: path.resolve('docs/shared/route-tree.gen.ts'),
+  routerSchema: path.resolve('docs/shared/router-schema.ts'),
+  output: path.resolve('docs/frontend/route-tree.gen.ts'),
   manifestOutput: path.resolve('docs/shared/route-manifest.gen.ts'),
 });

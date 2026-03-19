@@ -65,6 +65,6 @@ function SharedPostInfo() {
 }
 ```
 
-## Search params from head-tag schemas
+## Search params from the router schema
 
-Routes with `head: 'key'` can pick up typed search params from the shared head-tag schema, even though the backend never imports the frontend route modules.
+Routes pick up typed search params from the shared `routerSchema`, even though the backend never imports the frontend route modules.

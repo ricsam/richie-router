@@ -4,7 +4,7 @@ import { RouteNotFoundError, ValidationError, createRouter, Status } from '@rich
 import { defineHeadTags, handleHeadTagRequest, handleRequest } from '@richie-router/server';
 import indexHtml from '../frontend/index.html';
 import { docsContract } from '../shared/contract';
-import { headTagSchema } from '../shared/head-tag-schema';
+import { routerSchema } from '../shared/router-schema';
 import { routeManifest } from '../shared/route-manifest.gen';
 
 const TEMPLATE_PATH = '/__richie-router-template';
@@ -211,8 +211,8 @@ const docsReferenceHtml = createDocsResponse('/openapi.json', {
   title: '@richie-router/ Docs API',
 });
 
-export const headTags = defineHeadTags(routeManifest, headTagSchema, {
-  'docs-shell': {
+export const headTags = defineHeadTags(routeManifest, routerSchema, {
+  __root__: {
     staleTime: 60_000,
     head: async () => ({
       meta: [
@@ -221,7 +221,7 @@ export const headTags = defineHeadTags(routeManifest, headTagSchema, {
       ],
     }),
   },
-  'document-page': {
+  '/docs/$slug': {
     staleTime: 60_000,
     head: async ({ params }) => {
       const document = documentsBySlug.get(params.slug);
@@ -237,7 +237,7 @@ export const headTags = defineHeadTags(routeManifest, headTagSchema, {
       };
     },
   },
-  'docs-search': {
+  '/search': {
     staleTime: 10_000,
     head: async ({ search }) => ({
       meta: [

@@ -18,7 +18,6 @@ function stripDuplicateLeadingHeading(markdown: string, title: string): string {
 
 export const Route = createFileRoute('/docs/$slug')({
   component: DocumentPage,
-  head: 'document-page',
 });
 
 function DocumentPage() {

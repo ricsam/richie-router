@@ -42,19 +42,19 @@ The important boundary is:
 
 1. `route-tree.gen.ts`
 
-This is the client route tree. It imports route modules and powers the React runtime.
+This is the client route tree. It imports route modules and powers the React runtime, so it should live in a frontend-only location.
 
 2. `route-manifest.gen.ts`
 
-This is the server-safe route manifest. It contains route structure, path relationships, shared search schemas, and string head-tag references, but it does not import frontend route files.
+This is the server-safe route manifest. It contains route structure, path relationships, and shared route metadata from `routerSchema`, but it does not import frontend route files.
 
 ```ts
 import { generateRouteTree } from '@richie-router/tooling';
 
 await generateRouteTree({
   routesDir: './frontend/routes',
-  headTagSchema: './shared/head-tag-schema.ts',
-  output: './shared/route-tree.gen.ts',
+  routerSchema: './shared/router-schema.ts',
+  output: './frontend/route-tree.gen.ts',
   manifestOutput: './shared/route-manifest.gen.ts',
 });
 ```
@@ -106,7 +106,6 @@ import { Link, Outlet, createRootRoute } from '@richie-router/react';
 
 export const Route = createRootRoute({
   component: RootLayout,
-  head: 'app-shell',
 });
 
 function RootLayout() {
@@ -131,7 +130,6 @@ import { createFileRoute } from '@richie-router/react';
 
 export const Route = createFileRoute('/posts/$postId')({
   component: PostPage,
-  head: 'post-detail',
 });
 ```
 
@@ -139,31 +137,34 @@ Common route options:
 
 - `component`, `pendingComponent`, `errorComponent`, `notFoundComponent`
 - `head`
-- `validateSearch`
 - `beforeLoad`
 - `pendingMs`, `pendingMinMs`
 - `staticData`
 
-`head` supports three modes:
+`head` is client-only:
 
-1. `head: 'post-detail'` for server-resolved head tags keyed through `defineHeadTags(...)`
-2. `head: { ... }` for client-only static head tags
-3. `head: ({ params, search, matches }) => ({ ... })` for client-only computed head tags
+1. `head: { ... }` for client-only static head tags
+2. `head: ({ params, search, matches }) => ({ ... })` for client-only computed head tags
 
 `beforeLoad` is a client-side lifecycle. It can continue normally, throw `redirect(...)`, throw `notFound(...)`, or throw any other error. Because the backend never executes frontend route modules, `beforeLoad` does not run during the initial document request.
 
-## Shared Search And Head Tags
+## Shared Router Schema
 
-The shared head-tag schema connects route `head: 'key'` declarations to typed search params for both client navigation and backend head-tag definitions.
+The shared `routerSchema` connects route IDs to typed search params and optional `serverHead: true` flags for both client navigation and backend head definitions.
 
 ```ts
 import { z } from 'zod';
-import { defineHeadTagSchema } from '@richie-router/core';
+import { defineRouterSchema } from '@richie-router/core';
 
-export const headTagSchema = defineHeadTagSchema({
-  'app-shell': {},
-  'post-detail': {},
-  'search-page': {
+export const routerSchema = defineRouterSchema({
+  __root__: {
+    serverHead: true,
+  },
+  '/posts/$postId': {
+    serverHead: true,
+  },
+  '/search': {
+    serverHead: true,
     searchSchema: z.object({
       query: z.string().default('router'),
       limit: z.coerce.number().default(5),
@@ -172,17 +173,17 @@ export const headTagSchema = defineHeadTagSchema({
 });
 ```
 
-If a route references a head-tag key with a `searchSchema`, generated route types flow through `Link`, `navigate`, and `Route.useSearch()`.
+If a route has a `searchSchema`, generated route types flow through `Link`, `navigate`, and `Route.useSearch()`.
 
-Server head tags are defined with `defineHeadTags(...)`:
+Server head tags are defined with `defineHeadTags(...)` keyed by route ID:
 
 ```ts
 import { defineHeadTags } from '@richie-router/server';
 import { routeManifest } from '../shared/route-manifest.gen';
-import { headTagSchema } from '../shared/head-tag-schema';
+import { routerSchema } from '../shared/router-schema';
 
-export const headTags = defineHeadTags(routeManifest, headTagSchema, {
-  'app-shell': {
+export const headTags = defineHeadTags(routeManifest, routerSchema, {
+  __root__: {
     staleTime: 60_000,
     head: async () => ({
       meta: [
@@ -210,7 +211,7 @@ interface HeadTagContext<TSearch> {
 
 ```tsx
 import { createRouter } from '@richie-router/react';
-import { routeTree } from '../shared/route-tree.gen';
+import { routeTree } from './route-tree.gen';
 
 export const router = createRouter({
   routeTree,
@@ -276,7 +277,7 @@ Required template shape:
 </html>
 ```
 
-`<!--richie-router-head-->` is the only `@richie-router/` placeholder. On page requests, the server injects the merged head tags for all matched `head: 'key'` routes plus a small bootstrap script that sets `window.__RICHIE_ROUTER_HEAD__`. On head API requests, the server returns JSON shaped like `{ head, staleTime }`.
+`<!--richie-router-head-->` is the only `@richie-router/` placeholder. On page requests, the server injects the merged head tags for all matched routes with `serverHead: true` plus a small bootstrap script that sets `window.__RICHIE_ROUTER_HEAD__`. On head API requests, the server resolves head by `routeId` and returns JSON shaped like `{ head, staleTime }`.
 
 Head merging follows a few simple rules:
 

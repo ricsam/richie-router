@@ -6,7 +6,6 @@ import type { SearchResult } from '../../shared/contract';
 
 export const Route = createFileRoute('/search')({
   component: SearchPage,
-  head: 'docs-search',
 });
 
 function SearchPage() {

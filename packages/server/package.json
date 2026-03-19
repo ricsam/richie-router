@@ -1,6 +1,6 @@
 {
   "name": "@richie-router/server",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Server helpers for Richie Router head tags and document handling",
   "type": "module",
   "sideEffects": false,

@@ -1,6 +1,6 @@
 {
   "name": "@richie-router/core",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Shared route, search, and head utilities for Richie Router",
   "type": "module",
   "sideEffects": false,

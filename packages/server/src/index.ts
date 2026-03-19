@@ -3,6 +3,10 @@ import {
   createParsedLocation,
   defaultParseSearch,
   defaultStringifySearch,
+  type ResolveAllParamsForRouteId,
+  type RouteIdsWithServerHead,
+  type RouterSchemaShape,
+  type InferRouterSearchSchema,
   isNotFound,
   isRedirect,
   matchRouteTree,
@@ -10,53 +14,42 @@ import {
   serializeHeadConfig,
   type AnyRoute,
   type HeadConfig,
-  type HeadTagSchemaShape,
-  type InferHeadTagSearchSchema,
   type ParsedLocation,
   type RouteMatch,
 } from '@richie-router/core';
 
-export interface HeadTagContext<TSearch> {
+export interface HeadTagContext<TParams extends Record<string, string>, TSearch> {
   request: Request;
-  params: Record<string, string>;
+  params: TParams;
   search: TSearch;
 }
 
-export interface HeadTagDefinition<TSearch> {
+export interface HeadTagDefinition<TParams extends Record<string, string>, TSearch> {
   staleTime?: number;
-  head: (ctx: HeadTagContext<TSearch>) => Promise<HeadConfig> | HeadConfig;
+  head: (ctx: HeadTagContext<TParams, TSearch>) => Promise<HeadConfig> | HeadConfig;
 }
 
-export interface DefinedHeadTags<
-  TRouteManifest extends AnyRoute,
-  THeadTagSchema extends HeadTagSchemaShape,
-  TDefinitions extends Partial<{
-    [THeadTagName in keyof THeadTagSchema]: HeadTagDefinition<
-      InferHeadTagSearchSchema<THeadTagSchema, THeadTagName>
-    >;
-  }>,
-> {
+export type HeadTagDefinitions<TRouterSchema extends RouterSchemaShape> = {
+  [TRouteId in RouteIdsWithServerHead<TRouterSchema>]: HeadTagDefinition<
+    ResolveAllParamsForRouteId<TRouteId>,
+    InferRouterSearchSchema<TRouterSchema, TRouteId>
+  >;
+};
+
+export interface DefinedHeadTags<TRouteManifest extends AnyRoute, TRouterSchema extends RouterSchemaShape> {
   routeManifest: TRouteManifest;
-  headTagSchema: THeadTagSchema;
-  definitions: TDefinitions;
+  routerSchema: TRouterSchema;
+  definitions: HeadTagDefinitions<TRouterSchema>;
 }
 
-export function defineHeadTags<
-  TRouteManifest extends AnyRoute,
-  THeadTagSchema extends HeadTagSchemaShape,
-  TDefinitions extends Partial<{
-    [THeadTagName in keyof THeadTagSchema]: HeadTagDefinition<
-      InferHeadTagSearchSchema<THeadTagSchema, THeadTagName>
-    >;
-  }>,
->(
+export function defineHeadTags<TRouteManifest extends AnyRoute, TRouterSchema extends RouterSchemaShape>(
   routeManifest: TRouteManifest,
-  headTagSchema: THeadTagSchema,
-  definitions: TDefinitions,
-): DefinedHeadTags<TRouteManifest, THeadTagSchema, TDefinitions> {
+  routerSchema: TRouterSchema,
+  definitions: HeadTagDefinitions<TRouterSchema>,
+): DefinedHeadTags<TRouteManifest, TRouterSchema> {
   return {
     routeManifest,
-    headTagSchema,
+    routerSchema,
     definitions,
   };
 }
@@ -71,24 +64,16 @@ export interface HtmlOptions {
       }) => string | Promise<string>);
 }
 
-export interface HandleRequestOptions<
-  TRouteManifest extends AnyRoute,
-  THeadTagSchema extends HeadTagSchemaShape,
-  TDefinitions extends Partial<Record<keyof THeadTagSchema, HeadTagDefinition<any>>>,
-> {
+export interface HandleRequestOptions<TRouteManifest extends AnyRoute, TRouterSchema extends RouterSchemaShape> {
   routeManifest: TRouteManifest;
-  headTags: DefinedHeadTags<TRouteManifest, THeadTagSchema, TDefinitions>;
+  headTags: DefinedHeadTags<TRouteManifest, TRouterSchema>;
   html: HtmlOptions;
   headBasePath?: string;
   routeBasePath?: string;
 }
 
-export interface HandleHeadTagRequestOptions<
-  TRouteManifest extends AnyRoute,
-  THeadTagSchema extends HeadTagSchemaShape,
-  TDefinitions extends Partial<Record<keyof THeadTagSchema, HeadTagDefinition<any>>>,
-> {
-  headTags: DefinedHeadTags<TRouteManifest, THeadTagSchema, TDefinitions>;
+export interface HandleHeadTagRequestOptions<TRouteManifest extends AnyRoute, TRouterSchema extends RouterSchemaShape> {
+  headTags: DefinedHeadTags<TRouteManifest, TRouterSchema>;
   headBasePath?: string;
 }
 
@@ -178,22 +163,20 @@ function buildMatches(routeManifest: AnyRoute, location: ParsedLocation): RouteM
   });
 }
 
-async function executeHeadTag<
-  TRouteManifest extends AnyRoute,
-  THeadTagSchema extends HeadTagSchemaShape,
-  TDefinitions extends Partial<Record<keyof THeadTagSchema, HeadTagDefinition<any>>>,
->(
+async function executeHeadTag<TRouteManifest extends AnyRoute, TRouterSchema extends RouterSchemaShape>(
   request: Request,
-  headTags: DefinedHeadTags<TRouteManifest, THeadTagSchema, TDefinitions>,
-  headTagName: string,
+  headTags: DefinedHeadTags<TRouteManifest, TRouterSchema>,
+  routeId: string,
   params: Record<string, string>,
   rawSearch: unknown,
 ): Promise<{ head: HeadConfig; staleTime?: number }> {
-  const definition = headTags.definitions[headTagName as keyof TDefinitions] as HeadTagDefinition<any> | undefined;
-  const schemaEntry = headTags.headTagSchema[headTagName];
+  const definition = headTags.definitions[routeId as keyof typeof headTags.definitions] as
+    | HeadTagDefinition<Record<string, string>, unknown>
+    | undefined;
+  const schemaEntry = headTags.routerSchema[routeId];
 
   if (!definition) {
-    throw new Error(`Unknown head tag "${headTagName}".`);
+    throw new Error(`Unknown server head route "${routeId}".`);
   }
 
   const search = schemaEntry?.searchSchema ? schemaEntry.searchSchema.parse(rawSearch) : rawSearch;
@@ -209,54 +192,52 @@ async function executeHeadTag<
   };
 }
 
-async function resolveMatchedHead<
-  TRouteManifest extends AnyRoute,
-  THeadTagSchema extends HeadTagSchemaShape,
-  TDefinitions extends Partial<Record<keyof THeadTagSchema, HeadTagDefinition<any>>>,
->(
+async function resolveMatchedHead<TRouteManifest extends AnyRoute, TRouterSchema extends RouterSchemaShape>(
   request: Request,
-  headTags: DefinedHeadTags<TRouteManifest, THeadTagSchema, TDefinitions>,
+  headTags: DefinedHeadTags<TRouteManifest, TRouterSchema>,
   matches: RouteMatch[],
 ): Promise<HeadConfig> {
   const resolvedHeadByRoute = new Map<string, HeadConfig>();
 
   for (const match of matches) {
-    const headOption = match.route.options.head;
-    if (typeof headOption !== 'string') {
+    if (!match.route.serverHead) {
       continue;
     }
 
-    const result = await executeHeadTag(request, headTags, headOption, match.params, match.search);
+    const result = await executeHeadTag(request, headTags, match.route.fullPath, match.params, match.search);
     resolvedHeadByRoute.set(match.route.fullPath, result.head);
   }
 
   return resolveHeadConfig(matches, resolvedHeadByRoute);
 }
 
-export async function handleHeadTagRequest<
-  TRouteManifest extends AnyRoute,
-  THeadTagSchema extends HeadTagSchemaShape,
-  TDefinitions extends Partial<Record<keyof THeadTagSchema, HeadTagDefinition<any>>>,
->(
+export async function handleHeadTagRequest<TRouteManifest extends AnyRoute, TRouterSchema extends RouterSchemaShape>(
   request: Request,
-  options: HandleHeadTagRequestOptions<TRouteManifest, THeadTagSchema, TDefinitions>,
+  options: HandleHeadTagRequestOptions<TRouteManifest, TRouterSchema>,
 ): Promise<HandleRequestResult> {
   const url = new URL(request.url);
   const headBasePath = options.headBasePath ?? '/head-api';
 
-  if (!url.pathname.startsWith(`${headBasePath}/`)) {
+  if (url.pathname !== headBasePath) {
     return {
       matched: false,
       response: new Response('Not Found', { status: 404 }),
     };
   }
 
-  const headTagName = decodeURIComponent(url.pathname.slice(headBasePath.length + 1));
+  const routeId = url.searchParams.get('routeId');
+  if (!routeId) {
+    return {
+      matched: true,
+      response: jsonResponse({ message: 'Missing routeId' }, { status: 400 }),
+    };
+  }
+
   const params = JSON.parse(url.searchParams.get('params') ?? '{}') as Record<string, string>;
   const search = JSON.parse(url.searchParams.get('search') ?? '{}');
 
   try {
-    const result = await executeHeadTag(request, options.headTags, headTagName, params, search);
+    const result = await executeHeadTag(request, options.headTags, routeId, params, search);
     return {
       matched: true,
       response: jsonResponse(result),
@@ -280,13 +261,9 @@ export async function handleHeadTagRequest<
   }
 }
 
-export async function handleRequest<
-  TRouteManifest extends AnyRoute,
-  THeadTagSchema extends HeadTagSchemaShape,
-  TDefinitions extends Partial<Record<keyof THeadTagSchema, HeadTagDefinition<any>>>,
->(
+export async function handleRequest<TRouteManifest extends AnyRoute, TRouterSchema extends RouterSchemaShape>(
   request: Request,
-  options: HandleRequestOptions<TRouteManifest, THeadTagSchema, TDefinitions>,
+  options: HandleRequestOptions<TRouteManifest, TRouterSchema>,
 ): Promise<HandleRequestResult> {
   const url = new URL(request.url);
   const routeBasePath = options.routeBasePath ?? '/';

@@ -43,14 +43,10 @@ declare global {
 
 export interface Register {}
 
-type RegisteredHeadTagMap = Register extends { headTagMap: infer THeadTagMap }
-  ? THeadTagMap
-  : Record<string, string>;
-
-type RegisteredHeadTagSearchSchema = Register extends {
-  headTagSearchSchema: infer THeadTagSearchSchema;
+type RegisteredRouteSearchSchema = Register extends {
+  routeSearchSchema: infer TRouteSearchSchema;
 }
-  ? THeadTagSearchSchema
+  ? TRouteSearchSchema
   : Record<string, {}>;
 
 type RegisteredRouteTree = Register extends { routeTree: infer TRouteTree } ? TRouteTree : AnyRoute;
@@ -106,23 +102,9 @@ type MatchOfRoute<TRoute> = {
 type SafeRouteByTo<TTo extends string> = [RouteById<TTo>] extends [never] ? AnyRoute : RouteById<TTo>;
 type ParamsForTo<TTo extends string> = ParamsOfRoute<SafeRouteByTo<TTo>>;
 type SearchForTo<TTo extends string> = SearchOfRoute<SafeRouteByTo<TTo>>;
-type SearchForFullPath<TPath extends string> = TPath extends keyof RegisteredHeadTagSearchSchema
-  ? RegisteredHeadTagSearchSchema[TPath]
+type SearchForRouteId<TPath extends string> = TPath extends keyof RegisteredRouteSearchSchema
+  ? RegisteredRouteSearchSchema[TPath]
   : {};
-
-type HeadTagNameForFullPath<TPath extends string> = TPath extends keyof RegisteredHeadTagMap
-  ? RegisteredHeadTagMap[TPath]
-  : string;
-
-type InferValidateSearch<TOptions> = TOptions extends {
-  validateSearch: (...args: any[]) => infer TSearch;
-}
-  ? TSearch
-  : {};
-
-type SearchForRoutePath<TPath extends string, TOptions> = Simplify<
-  SearchForFullPath<TPath> & InferValidateSearch<TOptions>
->;
 
 type ParamsInput<TParams> = TParams | ((previous: TParams) => TParams);
 type SearchInput<TSearch> = TSearch | ((previous: TSearch) => TSearch) | true;
@@ -139,18 +121,15 @@ type ClientHeadOption<TPath extends string, TSearch> =
       matches: RouteMatch[];
     }) => HeadConfig);
 
-type RouteHeadOption<TPath extends string, TSearch> =
-  | ClientHeadOption<TPath, TSearch>
-  | (HeadTagNameForFullPath<TPath> extends never ? never : HeadTagNameForFullPath<TPath>);
-
 type RouteOptionsInput<TPath extends string, TSearch> = Omit<CoreRouteOptions<TPath, TSearch>, 'head'> & {
-  head?: RouteHeadOption<TPath, TSearch>;
+  head?: ClientHeadOption<TPath, TSearch>;
 };
 
 type FileRouteInstance<
   TPath extends string,
   TSearch,
   TFileTypes = unknown,
+  THasInlineHead extends boolean = boolean,
 > = RouteNode<
   TPath,
   NormalizeRouteId<TPath>,
@@ -166,7 +145,9 @@ type FileRouteInstance<
       TSearch,
       TFileTypes
     >
-  >;
+  > & {
+    __hasInlineHead: THasInlineHead;
+  };
 
 export interface TypedRouteMatch<
   TPath extends string,
@@ -238,7 +219,7 @@ export interface RouterOptions<TRouteTree extends AnyRoute> {
   stringifySearch?: (search: Record<string, unknown>) => string;
   loadRouteHead?: (ctx: {
     route: AnyRoute;
-    headTagName: string;
+    routeId: string;
     params: Record<string, string>;
     search: unknown;
     location: ParsedLocation;
@@ -256,10 +237,6 @@ const OutletContext = React.createContext<React.ReactNode>(null);
 const MatchContext = React.createContext<RouteMatch | null>(null);
 const MANAGED_HEAD_ATTRIBUTE = 'data-richie-router-head';
 const EMPTY_HEAD: HeadConfig = { meta: [], links: [], scripts: [], styles: [] };
-
-function isHeadTagReference(head: AnyRoute['options']['head']): head is string {
-  return typeof head === 'string';
-}
 
 function routeHasRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
@@ -305,40 +282,53 @@ function attachRouteApi<TRoute extends AnyRoute>(route: TRoute): TRoute & RouteA
 }
 
 export function createFileRoute<TPath extends string>(path: TPath) {
-  return function <TCustomSearch = {}>(
-    options: RouteOptionsInput<TPath, Simplify<SearchForFullPath<TPath> & TCustomSearch>> & {
-      validateSearch?: (raw: Record<string, unknown>) => TCustomSearch;
-    },
-  ): FileRouteInstance<TPath, Simplify<SearchForFullPath<TPath> & TCustomSearch>> {
+  return function <TOptions extends RouteOptionsInput<TPath, SearchForRouteId<TPath>>>(
+    options: TOptions,
+  ): FileRouteInstance<
+    TPath,
+    SearchForRouteId<TPath>,
+    unknown,
+    TOptions extends { head: any } ? true : false
+  > {
     const route = createRouteNode<
       TPath,
       NormalizeRouteId<TPath>,
       ResolveAllParams<TPath>,
-      Simplify<SearchForFullPath<TPath> & TCustomSearch>
+      SearchForRouteId<TPath>
     >(
       path,
-      options as CoreRouteOptions<TPath, Simplify<SearchForFullPath<TPath> & TCustomSearch>>,
+      options as CoreRouteOptions<TPath, SearchForRouteId<TPath>>,
     );
 
     return attachRouteApi(route) as FileRouteInstance<
       TPath,
-      Simplify<SearchForFullPath<TPath> & TCustomSearch>
+      SearchForRouteId<TPath>,
+      unknown,
+      TOptions extends { head: any } ? true : false
     >;
   };
 }
 
-export function createRootRoute<TCustomSearch = {}>(
-  options: CoreRouteOptions<'__root__', TCustomSearch> & {
-    validateSearch?: (raw: Record<string, unknown>) => TCustomSearch;
-  },
-): FileRouteInstance<'__root__', TCustomSearch> {
-  const route = createRouteNode<'__root__', '/', ResolveAllParams<'/'>, TCustomSearch>(
+export function createRootRoute<TOptions extends RouteOptionsInput<'__root__', SearchForRouteId<'__root__'>>>(
+  options: TOptions,
+): FileRouteInstance<
+  '__root__',
+  SearchForRouteId<'__root__'>,
+  unknown,
+  TOptions extends { head: any } ? true : false
+> {
+  const route = createRouteNode<'__root__', '/', ResolveAllParams<'/'>, SearchForRouteId<'__root__'>>(
     '__root__',
-    options as CoreRouteOptions<'__root__', TCustomSearch>,
+    options as CoreRouteOptions<'__root__', SearchForRouteId<'__root__'>>,
     { isRoot: true },
   );
 
-  return attachRouteApi(route) as FileRouteInstance<'__root__', TCustomSearch>;
+  return attachRouteApi(route) as FileRouteInstance<
+    '__root__',
+    SearchForRouteId<'__root__'>,
+    unknown,
+    TOptions extends { head: any } ? true : false
+  >;
 }
 
 export class Router<TRouteTree extends AnyRoute> {
@@ -536,14 +526,9 @@ export class Router<TRouteTree extends AnyRoute> {
   }
 
   private resolveSearch(route: AnyRoute, rawSearch: Record<string, unknown>): unknown {
-    const fromHeadTagSchema = route.searchSchema ? route.searchSchema.parse(rawSearch) : {};
-    const fromRoute = route.options.validateSearch ? route.options.validateSearch(rawSearch) : {};
-
-    if (routeHasRecord(fromHeadTagSchema) || routeHasRecord(fromRoute)) {
-      return {
-        ...(routeHasRecord(fromHeadTagSchema) ? fromHeadTagSchema : {}),
-        ...(routeHasRecord(fromRoute) ? fromRoute : {}),
-      };
+    const fromSchema = route.searchSchema ? route.searchSchema.parse(rawSearch) : {};
+    if (routeHasRecord(fromSchema)) {
+      return fromSchema;
     }
 
     return rawSearch;
@@ -613,14 +598,13 @@ export class Router<TRouteTree extends AnyRoute> {
     const resolvedHeadByRoute = new Map<string, HeadConfig>();
 
     for (const match of matches) {
-      const headOption = match.route.options.head;
-      if (!isHeadTagReference(headOption)) {
+      if (!match.route.serverHead) {
         continue;
       }
 
       resolvedHeadByRoute.set(
         match.route.fullPath,
-        await this.loadRouteHead(match.route, headOption, match.params, match.search, location, request),
+        await this.loadRouteHead(match.route, match.params, match.search, location, request),
       );
     }
 
@@ -629,14 +613,13 @@ export class Router<TRouteTree extends AnyRoute> {
 
   private async loadRouteHead(
     route: AnyRoute,
-    headTagName: string,
     params: Record<string, string>,
     search: unknown,
     location: ParsedLocation,
     request?: Request,
   ): Promise<HeadConfig> {
     const cacheKey = JSON.stringify({
-      headTagName,
+      routeId: route.fullPath,
       params,
       search,
     });
@@ -650,13 +633,13 @@ export class Router<TRouteTree extends AnyRoute> {
       this.options.loadRouteHead !== undefined
         ? await this.options.loadRouteHead({
             route,
-            headTagName,
+            routeId: route.fullPath,
             params,
             search,
             location,
             request,
           })
-        : await this.fetchRouteHead(route, headTagName, params, search);
+        : await this.fetchRouteHead(route, params, search);
 
     this.headCache.set(cacheKey, {
       head: response.head,
@@ -668,7 +651,6 @@ export class Router<TRouteTree extends AnyRoute> {
 
   private async fetchRouteHead(
     route: AnyRoute,
-    headTagName: string,
     params: Record<string, string>,
     search: unknown,
   ): Promise<{ head: HeadConfig; staleTime?: number }> {
@@ -678,14 +660,14 @@ export class Router<TRouteTree extends AnyRoute> {
       params: JSON.stringify(params),
       search: JSON.stringify(search),
     });
-    const response = await fetch(`${basePath}/${encodeURIComponent(headTagName)}?${searchParams.toString()}`);
+    const response = await fetch(`${basePath}?${searchParams.toString()}`);
 
     if (!response.ok) {
       if (response.status === 404) {
         throw notFound();
       }
 
-      throw new Error(`Failed to resolve head tag "${headTagName}" for route "${route.fullPath}"`);
+      throw new Error(`Failed to resolve server head for route "${route.fullPath}"`);
     }
 
     return (await response.json()) as { head: HeadConfig; staleTime?: number };

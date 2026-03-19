@@ -1,5 +1,5 @@
 import { createRouter, type RouterOptions } from '@richie-router/react';
-import { routeTree } from '../shared/route-tree.gen';
+import { routeTree } from './route-tree.gen';
 
 function DefaultNotFound() {
   return (

@@ -1,11 +1,10 @@
-import { readdir, readFile, writeFile } from 'node:fs/promises';
+import { readdir, writeFile } from 'node:fs/promises';
 import { watch as fsWatch } from 'node:fs';
 import path from 'node:path';
-import { pathToFileURL } from 'node:url';
 
 export interface GenerateRouteTreeOptions {
   routesDir: string;
-  headTagSchema: string;
+  routerSchema: string;
   output: string;
   manifestOutput?: string;
   quoteStyle?: 'single' | 'double';
@@ -28,10 +27,7 @@ interface RouteFileRecord {
   isRoot: boolean;
   parentId: string | null;
 }
-
-interface ScannedRouteFile extends RouteFileRecord {
-  headTag?: string;
-}
+type ScannedRouteFile = RouteFileRecord;
 
 function quote(value: string, quoteStyle: 'single' | 'double'): string {
   const marker = quoteStyle === 'single' ? "'" : '"';
@@ -195,42 +191,6 @@ function variableBaseName(relativeFilePath: string): string {
     .join('');
 }
 
-async function rewriteCreateFileRoutePath(file: string, routeId: string): Promise<void> {
-  const source = await readFile(file, 'utf8');
-  if (!source.includes('createFileRoute(')) {
-    return;
-  }
-
-  const nextSource = source.replace(
-    /createFileRoute\(\s*(['"`])(?:\\.|(?!\1).)*\1\s*\)/u,
-    `createFileRoute('${routeId}')`,
-  );
-
-  if (nextSource !== source) {
-    await writeFile(file, nextSource, 'utf8');
-  }
-}
-
-async function loadRouteMetadata(file: RouteFileRecord): Promise<ScannedRouteFile> {
-  const cacheBust = `?rr=${Date.now()}`;
-  const moduleUrl = `${pathToFileURL(file.absPath).href}${cacheBust}`;
-  const source = await readFile(file.absPath, 'utf8');
-  const headTagMatch = source.match(/\bhead\s*:\s*(['"`])([^'"`]+)\1/u);
-  let headTag = headTagMatch?.[2];
-
-  try {
-    const imported = (await import(moduleUrl)) as { Route?: { options?: { head?: unknown } } };
-    headTag = typeof imported.Route?.options?.head === 'string' ? imported.Route.options.head : headTag;
-  } catch {
-    // Route imports may fail mid-generation; keep regex fallback.
-  }
-
-  return {
-    ...file,
-    headTag,
-  };
-}
-
 async function scanRoutes(options: GenerateRouteTreeOptions): Promise<ScannedRouteFile[]> {
   const routesDir = path.resolve(options.routesDir);
   const files = (await walkDirectory(routesDir))
@@ -267,38 +227,29 @@ async function scanRoutes(options: GenerateRouteTreeOptions): Promise<ScannedRou
   const knownRouteIds = new Set(provisional.map(route => route.id));
   const outputDirectory = path.dirname(path.resolve(options.output));
 
-  const rewritten = await Promise.all(
-    provisional.map(async route => {
-      if (!route.isRoot) {
-        await rewriteCreateFileRoutePath(route.absPath, route.id);
-      }
+  const scanned = provisional.map(route => ({
+    absPath: route.absPath,
+    relPath: route.relPath,
+    importPath: relativeImportPath(outputDirectory, route.absPath),
+    importName: route.importName,
+    variableName: route.variableName,
+    withChildrenName: route.withChildrenName,
+    id: route.id,
+    to: route.to,
+    isRoot: route.isRoot,
+    parentId: computeParentId(
+      {
+        id: route.id,
+        to: route.to,
+        isRoot: route.isRoot,
+        segments: route.segments,
+        isIndex: route.isIndex,
+      },
+      knownRouteIds,
+    ),
+  }));
 
-      const importPath = relativeImportPath(outputDirectory, route.absPath);
-      return {
-        ...route,
-        importPath,
-        parentId: computeParentId(
-          {
-            id: route.id,
-            to: route.to,
-            isRoot: route.isRoot,
-            segments: route.segments,
-            isIndex: route.isIndex,
-          },
-          knownRouteIds,
-        ),
-      };
-    }),
-  );
-
-  const metadata = await Promise.all(
-    rewritten.map(async route => {
-      const { segments: _segments, isIndex: _isIndex, ...record } = route;
-      return loadRouteMetadata(record);
-    }),
-  );
-
-  return metadata.sort((left, right) => {
+  return scanned.sort((left, right) => {
     if (left.isRoot) return -1;
     if (right.isRoot) return 1;
     return left.id.localeCompare(right.id);
@@ -393,11 +344,16 @@ function buildChildAssemblies(
     .filter(Boolean);
 }
 
+function buildRouteMetadataAccess(routeId: string, quoteStyle: 'single' | 'double'): string {
+  return `._setSearchSchema((routerSchema as any)[${quote(routeId, quoteStyle)}]?.searchSchema as never)._setServerHead((routerSchema as any)[${quote(routeId, quoteStyle)}]?.serverHead)`;
+}
+
 function buildGeneratedClientFile(routes: ScannedRouteFile[], options: GenerateRouteTreeOptions): string {
   const quoteStyle = options.quoteStyle ?? 'single';
   const outputDirectory = path.dirname(path.resolve(options.output));
-  const schemaImport = relativeImportPath(outputDirectory, path.resolve(options.headTagSchema));
+  const schemaImport = relativeImportPath(outputDirectory, path.resolve(options.routerSchema));
   const { rootRoute, nonRootRoutes, routesById, childrenByParent, publicRouteMap } = buildRouteCollections(routes);
+  const allRoutes = [rootRoute, ...nonRootRoutes];
 
   const routeImports = routes.map(route =>
     formatStatement(
@@ -409,31 +365,22 @@ function buildGeneratedClientFile(routes: ScannedRouteFile[], options: GenerateR
   const routeUpdates = nonRootRoutes.map(route => {
     const parentReference =
       route.parentId === '__root__'
-        ? rootRoute.importName
-        : routesById.get(route.parentId ?? '')?.importName ?? rootRoute.importName;
+        ? rootRoute.variableName
+        : routesById.get(route.parentId ?? '')?.variableName ?? rootRoute.variableName;
 
-    let statement = `const ${route.variableName} = ${route.importName}.update({ id: ${quote(route.id, quoteStyle)}, path: ${quote(route.id, quoteStyle)}, getParentRoute: () => ${parentReference} } as const)`;
-
-    if (route.headTag) {
-      statement += `._setSearchSchema((headTagSchema as any)[${quote(route.headTag, quoteStyle)}]?.searchSchema as never)`;
-    }
-
-    return formatStatement(statement, options);
+    return formatStatement(
+      `const ${route.variableName} = ${route.importName}.update({ id: ${quote(route.id, quoteStyle)}, path: ${quote(route.id, quoteStyle)}, getParentRoute: () => ${parentReference} } as const)${buildRouteMetadataAccess(route.id, quoteStyle)}`,
+      options,
+    );
   });
 
-  const headTagMapEntries = nonRootRoutes.map(route =>
-    `  ${quote(route.id, quoteStyle)}: ${route.headTag ? quote(route.headTag, quoteStyle) : 'never'}${options.semicolons === false ? '' : ';'}`,
+  const routeSearchEntries = allRoutes.map(
+    route =>
+      `  ${quote(route.id, quoteStyle)}: InferRouterSearchSchema<RouterSchema, ${quote(route.id, quoteStyle)}>${options.semicolons === false ? '' : ';'}`,
   );
 
-  const headTagSearchEntries = nonRootRoutes
-    .filter(route => route.headTag)
-    .map(
-      route =>
-        `  ${quote(route.id, quoteStyle)}: InferHeadTagSearchSchema<HeadTagSchema, ${quote(route.headTag!, quoteStyle)}>${options.semicolons === false ? '' : ';'}`,
-    );
-
   const fileRoutesByIdEntries = [
-    `  ${quote('__root__', quoteStyle)}: typeof ${rootRoute.importName}${options.semicolons === false ? '' : ';'}`,
+    `  ${quote('__root__', quoteStyle)}: typeof ${rootRoute.variableName}${options.semicolons === false ? '' : ';'}`,
     ...nonRootRoutes.map(route => {
       const treeName = childrenByParent.has(route.id) ? route.withChildrenName : route.variableName;
       return `  ${quote(route.id, quoteStyle)}: typeof ${treeName}${options.semicolons === false ? '' : ';'}`;
@@ -456,6 +403,7 @@ function buildGeneratedClientFile(routes: ScannedRouteFile[], options: GenerateR
   const fullPaths = [...new Set(nonRootRoutes.map(route => route.to))];
   const toPaths = [...publicRouteMap.keys()];
   const childAssemblies = buildChildAssemblies(rootRoute, routesById, childrenByParent, options);
+  const fileRouteIdsUnion = ids.map(value => quote(value, quoteStyle)).join(' | ');
 
   const rootChildrenName = `${rootRoute.variableName}Children`;
   const rootChildren = (childrenByParent.get('__root__') ?? []).map(child => {
@@ -463,22 +411,38 @@ function buildGeneratedClientFile(routes: ScannedRouteFile[], options: GenerateR
     return `  ${treeName},`;
   });
 
+  const idAssertions = allRoutes.map(route =>
+    `type ${route.variableName}IdAssertion = Assert<IsEqual<typeof ${route.importName}['id'], ${quote(route.id, quoteStyle)}>>`,
+  );
+  const serverHeadAssertions = allRoutes.map(route =>
+    `type ${route.variableName}ServerHeadAssertion = Assert<RouteUsesServerHead<RouterSchema, ${quote(route.id, quoteStyle)}> extends true ? HasInlineHead<typeof ${route.importName}> extends true ? false : true : true>`,
+  );
+
   return [
     '/* eslint-disable */',
-    formatStatement(`import { headTagSchema } from ${quote(schemaImport, quoteStyle)}`, options),
-    formatStatement(`import type { HeadTagSchema } from ${quote(schemaImport, quoteStyle)}`, options),
-    formatStatement(`import type { InferHeadTagSearchSchema } from '@richie-router/core'`, options),
+    formatStatement(`import { routerSchema } from ${quote(schemaImport, quoteStyle)}`, options),
+    formatStatement(`import type { RouterSchema } from ${quote(schemaImport, quoteStyle)}`, options),
+    formatStatement(`import type { InferRouterSearchSchema, RouteUsesServerHead } from '@richie-router/core'`, options),
     '',
     ...routeImports,
     '',
+    formatStatement(
+      `const ${rootRoute.variableName} = ${rootRoute.importName}${buildRouteMetadataAccess(rootRoute.id, quoteStyle)}`,
+      options,
+    ),
+    '',
+    'type Assert<T extends true> = T',
+    'type IsEqual<TLeft, TRight> = (<TValue>() => TValue extends TLeft ? 1 : 2) extends (<TValue>() => TValue extends TRight ? 1 : 2) ? true : false',
+    'type HasInlineHead<TRoute> = TRoute extends { __hasInlineHead: infer TValue } ? TValue : false',
+    `type FileRouteIds = ${fileRouteIdsUnion}`,
+    'type RouterSchemaKeyAssertion = Assert<Exclude<keyof RouterSchema, FileRouteIds> extends never ? true : false>',
+    ...idAssertions,
+    ...serverHeadAssertions,
+    '',
     ...routeUpdates,
     '',
-    'export interface RouteHeadTagMap {',
-    ...headTagMapEntries,
-    '}',
-    '',
-    'export interface RouteHeadTagSearchSchema {',
-    ...headTagSearchEntries,
+    'export interface RouteSearchSchema {',
+    ...routeSearchEntries,
     '}',
     '',
     'export interface FileRoutesById {',
@@ -505,8 +469,7 @@ function buildGeneratedClientFile(routes: ScannedRouteFile[], options: GenerateR
     "declare module '@richie-router/react' {",
     '  interface Register {',
     `    routeTree: typeof routeTree${options.semicolons === false ? '' : ';'}`,
-    `    headTagMap: RouteHeadTagMap${options.semicolons === false ? '' : ';'}`,
-    `    headTagSearchSchema: RouteHeadTagSearchSchema${options.semicolons === false ? '' : ';'}`,
+    `    routeSearchSchema: RouteSearchSchema${options.semicolons === false ? '' : ';'}`,
     '  }',
     '}',
     '',
@@ -514,7 +477,7 @@ function buildGeneratedClientFile(routes: ScannedRouteFile[], options: GenerateR
     '',
     formatStatement(`const ${rootChildrenName} = {\n${rootChildren.join('\n')}\n}`, options),
     formatStatement(
-      `export const routeTree = ${rootRoute.importName}._addFileChildren(${rootChildrenName})._addFileTypes<FileRouteTypes>()`,
+      `export const routeTree = ${rootRoute.variableName}._addFileChildren(${rootChildrenName})._addFileTypes<FileRouteTypes>()`,
       options,
     ),
     '',
@@ -529,17 +492,12 @@ function buildGeneratedManifestFile(routes: ScannedRouteFile[], options: Generat
 
   const quoteStyle = options.quoteStyle ?? 'single';
   const outputDirectory = path.dirname(manifestOutput);
-  const schemaImport = relativeImportPath(outputDirectory, path.resolve(options.headTagSchema));
+  const schemaImport = relativeImportPath(outputDirectory, path.resolve(options.routerSchema));
   const { rootRoute, nonRootRoutes, routesById, childrenByParent } = buildRouteCollections(routes);
-  const rootRouteOptions = rootRoute.headTag ? `{ head: ${quote(rootRoute.headTag, quoteStyle)} }` : '{}';
 
   const routeDeclarations = [
     formatStatement(
-      `const ${rootRoute.variableName} = createRouteNode('__root__', ${rootRouteOptions}, { isRoot: true })${
-        rootRoute.headTag
-          ? `._setSearchSchema((headTagSchema as any)[${quote(rootRoute.headTag, quoteStyle)}]?.searchSchema as never)`
-          : ''
-      }`,
+      `const ${rootRoute.variableName} = createRouteNode('__root__', {}, { isRoot: true })${buildRouteMetadataAccess(rootRoute.id, quoteStyle)}`,
       options,
     ),
     ...nonRootRoutes.map(route => {
@@ -547,14 +505,10 @@ function buildGeneratedManifestFile(routes: ScannedRouteFile[], options: Generat
         route.parentId === '__root__'
           ? rootRoute.variableName
           : routesById.get(route.parentId ?? '')?.variableName ?? rootRoute.variableName;
-      const routeOptions = route.headTag ? `{ head: ${quote(route.headTag, quoteStyle)} }` : '{}';
-      let statement = `const ${route.variableName} = createRouteNode(${quote(route.id, quoteStyle)}, ${routeOptions}).update({ id: ${quote(route.id, quoteStyle)}, path: ${quote(route.id, quoteStyle)}, getParentRoute: () => ${parentReference} } as const)`;
-
-      if (route.headTag) {
-        statement += `._setSearchSchema((headTagSchema as any)[${quote(route.headTag, quoteStyle)}]?.searchSchema as never)`;
-      }
-
-      return formatStatement(statement, options);
+      return formatStatement(
+        `const ${route.variableName} = createRouteNode(${quote(route.id, quoteStyle)}, {}).update({ id: ${quote(route.id, quoteStyle)}, path: ${quote(route.id, quoteStyle)}, getParentRoute: () => ${parentReference} } as const)${buildRouteMetadataAccess(route.id, quoteStyle)}`,
+        options,
+      );
     }),
   ];
 
@@ -568,7 +522,7 @@ function buildGeneratedManifestFile(routes: ScannedRouteFile[], options: Generat
   return [
     '/* eslint-disable */',
     formatStatement(`import { createRouteNode } from '@richie-router/core'`, options),
-    formatStatement(`import { headTagSchema } from ${quote(schemaImport, quoteStyle)}`, options),
+    formatStatement(`import { routerSchema } from ${quote(schemaImport, quoteStyle)}`, options),
     '',
     ...routeDeclarations,
     '',
@@ -611,7 +565,7 @@ export async function watchRouteTree(options: GenerateRouteTreeOptions): Promise
 
   const watchers = [
     fsWatch(path.resolve(options.routesDir), { recursive: true }, trigger),
-    fsWatch(path.resolve(options.headTagSchema), trigger),
+    fsWatch(path.resolve(options.routerSchema), trigger),
   ];
 
   return {

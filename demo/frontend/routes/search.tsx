@@ -2,7 +2,6 @@ import { createFileRoute } from '@richie-router/react';
 
 export const Route = createFileRoute('/search')({
   component: SearchPage,
-  head: 'search-page',
 });
 
 function SearchPage() {

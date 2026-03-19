@@ -32,7 +32,7 @@ const router = createRouter({
 
 ## Where validation still lives
 
-Custom serialization controls how the URL turns into raw search data. Route-level validation still happens in `validateSearch` or through the shared head-tag schema for routes that use `head: 'key'`.
+Custom serialization controls how the URL turns into raw search data. Route-level parsing still happens through the shared `routerSchema`.
 
 ## Good use cases
 

@@ -73,29 +73,37 @@ export interface SpaRoutesManifestRoute {
 }
 
 export interface SpaRoutesManifest {
-  routes: SpaRoutesManifestRoute[];
+  routes?: SpaRoutesManifestRoute[];
   spaRoutes: string[];
 }
 
-interface BaseHandleSpaRequestOptions {
-  html: HtmlOptions;
+interface BaseMatchSpaRequestOptions {
   basePath?: string;
 }
 
-export type HandleSpaRequestOptions =
-  | ({ routeManifest: AnyRoute } & BaseHandleSpaRequestOptions)
-  | ({ spaRoutesManifest: SpaRoutesManifest } & BaseHandleSpaRequestOptions);
+export type MatchSpaRequestOptions =
+  | ({ routeManifest: AnyRoute } & BaseMatchSpaRequestOptions)
+  | ({ spaRoutesManifest: SpaRoutesManifest } & BaseMatchSpaRequestOptions);
+
+interface DocumentResponseOptions {
+  html: HtmlOptions;
+  headers?: HeadersInit;
+}
+
+export type HandleSpaRequestOptions = MatchSpaRequestOptions & DocumentResponseOptions;
 
 export interface HandleRequestOptions<TRouteManifest extends AnyRoute, TRouterSchema extends RouterSchemaShape> {
   routeManifest: TRouteManifest;
   headTags: DefinedHeadTags<TRouteManifest, TRouterSchema>;
   html: HtmlOptions;
   basePath?: string;
+  headers?: HeadersInit;
   headBasePath?: string;
 }
 
 export interface HandleHeadTagRequestOptions<TRouteManifest extends AnyRoute, TRouterSchema extends RouterSchemaShape> {
   headTags: DefinedHeadTags<TRouteManifest, TRouterSchema>;
+  basePath?: string;
   headBasePath?: string;
 }
 
@@ -166,6 +174,9 @@ async function renderTemplate(
     richieRouterHead: string;
     head: HeadConfig;
   },
+  options?: {
+    requireHeadPlaceholder?: boolean;
+  },
 ): Promise<string> {
   const template = html.template;
 
@@ -174,6 +185,10 @@ async function renderTemplate(
   }
 
   if (!template.includes(HEAD_PLACEHOLDER)) {
+    if (options?.requireHeadPlaceholder === false) {
+      return template;
+    }
+
     throw new Error(`HTML template is missing required Richie Router placeholder: ${HEAD_PLACEHOLDER}`);
   }
 
@@ -197,11 +212,12 @@ function notFoundResult(): HandleRequestResult {
   };
 }
 
-function htmlResponse(html: string): Response {
+function htmlResponse(html: string, headers?: HeadersInit): Response {
   return new Response(html, {
     status: 200,
     headers: {
       'content-type': 'text/html; charset=utf-8',
+      ...(headers ?? {}),
     },
   });
 }
@@ -229,16 +245,22 @@ async function renderDocumentResponse(
   html: HtmlOptions,
   richieRouterHead: string,
   head: HeadConfig,
+  options?: {
+    headers?: HeadersInit;
+    requireHeadPlaceholder?: boolean;
+  },
 ): Promise<HandleRequestResult> {
   const template = await renderTemplate(html, {
     request,
     richieRouterHead,
     head,
+  }, {
+    requireHeadPlaceholder: options?.requireHeadPlaceholder,
   });
 
   return {
     matched: true,
-    response: htmlResponse(template),
+    response: htmlResponse(template, options?.headers),
   };
 }
 
@@ -293,12 +315,24 @@ function resolveSpaRoutes(spaRoutesManifest: SpaRoutesManifest): string[] {
   return spaRoutes;
 }
 
-function matchesSpaRequest(options: HandleSpaRequestOptions, location: ParsedLocation): boolean {
+function matchesSpaLocation(options: MatchSpaRequestOptions, location: ParsedLocation): boolean {
   if ('routeManifest' in options) {
     return buildMatches(options.routeManifest, location).length > 0;
   }
 
   return resolveSpaRoutes(options.spaRoutesManifest).some(route => matchPathname(route, location.pathname) !== null);
+}
+
+export function matchesSpaRequest(
+  request: Request,
+  options: MatchSpaRequestOptions,
+): boolean {
+  const documentRequest = resolveDocumentRequest(request, options.basePath);
+  if (documentRequest === null) {
+    return false;
+  }
+
+  return matchesSpaLocation(options, documentRequest.location);
 }
 
 async function executeHeadTag<TRouteManifest extends AnyRoute, TRouterSchema extends RouterSchemaShape>(
@@ -354,7 +388,8 @@ export async function handleHeadTagRequest<TRouteManifest extends AnyRoute, TRou
   options: HandleHeadTagRequestOptions<TRouteManifest, TRouterSchema>,
 ): Promise<HandleRequestResult> {
   const url = new URL(request.url);
-  const headBasePath = options.headBasePath ?? '/head-api';
+  const basePath = normalizeBasePath(options.basePath);
+  const headBasePath = options.headBasePath ?? prependBasePathToPathname('/head-api', basePath);
 
   if (url.pathname !== headBasePath) {
     return {
@@ -409,11 +444,14 @@ export async function handleSpaRequest(
     return notFoundResult();
   }
 
-  if (!matchesSpaRequest(options, documentRequest.location)) {
+  if (!matchesSpaLocation(options, documentRequest.location)) {
     return notFoundResult();
   }
 
-  return await renderDocumentResponse(request, options.html, '', EMPTY_HEAD);
+  return await renderDocumentResponse(request, options.html, '', EMPTY_HEAD, {
+    headers: options.headers,
+    requireHeadPlaceholder: false,
+  });
 }
 
 export async function handleRequest<TRouteManifest extends AnyRoute, TRouterSchema extends RouterSchemaShape>(
@@ -421,10 +459,10 @@ export async function handleRequest<TRouteManifest extends AnyRoute, TRouterSche
   options: HandleRequestOptions<TRouteManifest, TRouterSchema>,
 ): Promise<HandleRequestResult> {
   const basePath = normalizeBasePath(options.basePath);
-  const headBasePath = options.headBasePath ?? prependBasePathToPathname('/head-api', basePath);
   const handledHeadTagRequest = await handleHeadTagRequest(request, {
     headTags: options.headTags,
-    headBasePath,
+    basePath,
+    headBasePath: options.headBasePath,
   });
 
   if (handledHeadTagRequest.matched) {
@@ -448,7 +486,9 @@ export async function handleRequest<TRouteManifest extends AnyRoute, TRouterSche
       managedAttribute: MANAGED_HEAD_ATTRIBUTE,
     });
     const richieRouterHead = `${headHtml}${createHeadSnapshotScript(documentRequest.location.href, head)}`;
-    return await renderDocumentResponse(request, options.html, richieRouterHead, head);
+    return await renderDocumentResponse(request, options.html, richieRouterHead, head, {
+      headers: options.headers,
+    });
   } catch (error) {
     if (isRedirect(error)) {
       const redirectPath = prependBasePathToPathname(

@@ -1,5 +1,11 @@
 # @richie-router/server
 
+## 0.1.4
+
+### Patch Changes
+
+- Add additional utilities"
+
 ## 0.1.3
 
 ### Patch Changes

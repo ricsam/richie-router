@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { defineRouterSchema, redirect, createRouteNode } from '@richie-router/core';
-import { defineHeadTags, handleRequest, handleSpaRequest } from './index';
+import { defineHeadTags, handleHeadTagRequest, handleRequest, handleSpaRequest, matchesSpaRequest } from './index';
 
 function createTestArtifacts(options?: { redirectAbout?: boolean }) {
   const rootRoute = createRouteNode('__root__', {}, { isRoot: true });
@@ -68,12 +68,34 @@ function createTestArtifacts(options?: { redirectAbout?: boolean }) {
 }
 
 describe('handleSpaRequest', () => {
+  test('exposes a pure SPA matcher for host-side routing decisions', () => {
+    const { spaRoutesManifest, routeManifest } = createTestArtifacts();
+
+    expect(matchesSpaRequest(new Request('https://example.com/project/about'), {
+      spaRoutesManifest,
+      basePath: '/project',
+    })).toBe(true);
+
+    expect(matchesSpaRequest(new Request('https://example.com/project/posts/123'), {
+      routeManifest,
+      basePath: '/project',
+    })).toBe(true);
+
+    expect(matchesSpaRequest(new Request('https://example.com/project/api/health'), {
+      spaRoutesManifest,
+      basePath: '/project',
+    })).toBe(false);
+  });
+
   test('matches document requests under the basePath with a routeManifest', async () => {
     const { routeManifest } = createTestArtifacts();
 
     const result = await handleSpaRequest(new Request('https://example.com/project/about'), {
       routeManifest,
       basePath: '/project',
+      headers: {
+        'cache-control': 'no-cache',
+      },
       html: {
         template: '<html><head><!--richie-router-head--></head><body><div id="app"></div></body></html>',
       },
@@ -85,6 +107,7 @@ describe('handleSpaRequest', () => {
     const html = await result.response.text();
     expect(html).not.toContain('window.__RICHIE_ROUTER_HEAD__');
     expect(html).toContain('<div id="app"></div>');
+    expect(result.response.headers.get('cache-control')).toBe('no-cache');
   });
 
   test('matches document requests under the basePath with a spaRoutesManifest', async () => {
@@ -134,24 +157,19 @@ describe('handleSpaRequest', () => {
     }
   });
 
-  test('requires the head placeholder for string templates', async () => {
+  test('allows string templates without the head placeholder', async () => {
     const { routeManifest } = createTestArtifacts();
 
-    let thrown: unknown;
-    try {
-      await handleSpaRequest(new Request('https://example.com/project/about'), {
-        routeManifest,
-        basePath: '/project',
-        html: {
-          template: '<html><head></head><body></body></html>',
-        },
-      });
-    } catch (error) {
-      thrown = error;
-    }
+    const result = await handleSpaRequest(new Request('https://example.com/project/about'), {
+      routeManifest,
+      basePath: '/project',
+      html: {
+        template: '<html><head></head><body><div id="app"></div></body></html>',
+      },
+    });
 
-    expect(thrown).toBeInstanceOf(Error);
-    expect((thrown as Error).message).toContain('<!--richie-router-head-->');
+    expect(result.matched).toBe(true);
+    expect(await result.response.text()).toContain('<div id="app"></div>');
   });
 });
 
@@ -235,5 +253,46 @@ describe('handleRequest basePath', () => {
         meta: [{ title: 'About' }],
       },
     });
+  });
+
+  test('allows direct head tag handling with basePath shorthand', async () => {
+    const { headTags } = createTestArtifacts();
+
+    const result = await handleHeadTagRequest(
+      new Request(
+        'https://example.com/project/head-api?routeId=%2Fabout&params=%7B%7D&search=%7B%7D',
+      ),
+      {
+        headTags,
+        basePath: '/project',
+      },
+    );
+
+    expect(result.matched).toBe(true);
+    expect(result.response.status).toBe(200);
+    expect(await result.response.json()).toEqual({
+      head: {
+        meta: [{ title: 'About' }],
+      },
+    });
+  });
+
+  test('preserves custom headers on successful document responses', async () => {
+    const { routeManifest, headTags } = createTestArtifacts();
+
+    const result = await handleRequest(new Request('https://example.com/project/about'), {
+      routeManifest,
+      headTags,
+      basePath: '/project',
+      headers: {
+        'cache-control': 'no-cache',
+      },
+      html: {
+        template: '<html><head><!--richie-router-head--></head><body><div id="app"></div></body></html>',
+      },
+    });
+
+    expect(result.matched).toBe(true);
+    expect(result.response.headers.get('cache-control')).toBe('no-cache');
   });
 });

@@ -329,7 +329,18 @@ The backend may throw:
 
 ## 9. Request Handling
 
-`handleSpaRequest()` serves SPA document requests without any server head-tag work. It accepts either a server-safe `routeManifest` or a parsed `spa-routes.gen.json` manifest. `handleHeadTagRequest()` is the scoped helper for the JSON endpoint used by client head-tag loaders. `handleRequest()` composes both concerns as a convenience when you want SPA document handling plus server head tags.
+`matchesSpaRequest()` is the low-level matcher for deciding whether a request should be handled by your SPA shell. `handleSpaRequest()` builds on that and serves SPA document requests without any server head-tag work. It accepts either a server-safe `routeManifest` or a parsed `spa-routes.gen.json` manifest. `handleHeadTagRequest()` is the scoped helper for the JSON endpoint used by client head-tag loaders. `handleRequest()` composes both concerns as a convenience when you want SPA document handling plus server head tags.
+
+```ts
+import { matchesSpaRequest } from '@richie-router/server';
+
+if (matchesSpaRequest(request, {
+  spaRoutesManifest,
+  basePath: '/project',
+})) {
+  // Your host can render or serve the SPA shell here.
+}
+```
 
 ```ts
 import { handleSpaRequest } from '@richie-router/server';
@@ -339,6 +350,9 @@ const template = await Bun.file('./frontend/index.html').text();
 const spaHandled = await handleSpaRequest(request, {
   spaRoutesManifest,
   basePath: '/project',
+  headers: {
+    'cache-control': 'no-cache',
+  },
   html: {
     template,
   },
@@ -354,7 +368,7 @@ import { handleHeadTagRequest, handleRequest } from '@richie-router/server';
 
 const headHandled = await handleHeadTagRequest(request, {
   headTags,
-  headBasePath: '/head-api',
+  basePath: '/project',
 });
 
 if (headHandled.matched) return headHandled.response;
@@ -371,9 +385,9 @@ const handled = await handleRequest(request, {
 if (handled.matched) return handled.response;
 ```
 
-`basePath` on `handleSpaRequest()` and `handleRequest()` is the SPA document prefix. It strips that prefix before matching backend SPA routes, and `handleRequest()` also prefixes redirect responses with it. `headBasePath` is separate and still refers to the concrete head API endpoint path. If you omit `headBasePath`, `handleRequest()` defaults it to `${basePath}/head-api` when `basePath` is set, otherwise `/head-api`.
+`basePath` on `matchesSpaRequest()`, `handleSpaRequest()`, and `handleRequest()` is the SPA document prefix. It strips that prefix before matching backend SPA routes, and `handleRequest()` also prefixes redirect responses with it. `headBasePath` is separate and still refers to the concrete head API endpoint path. If you omit `headBasePath`, both `handleHeadTagRequest()` and `handleRequest()` default it to `${basePath}/head-api` when `basePath` is set, otherwise `/head-api`.
 
-If you call `handleHeadTagRequest()` directly, pass the actual endpoint path for your deployment, for example `'/head-api'` or `'/project/head-api'`.
+If you call `handleHeadTagRequest()` directly, pass either `basePath`, the actual `headBasePath`, or both when your head API lives somewhere custom.
 
 Required template shape:
 
@@ -390,7 +404,7 @@ Required template shape:
 </html>
 ```
 
-`<!--richie-router-head-->` is the only `@richie-router/` placeholder. `handleSpaRequest()` replaces it with an empty string.
+`<!--richie-router-head-->` is the only `@richie-router/` placeholder. `handleSpaRequest()` strips it when present and leaves string templates without it unchanged.
 
 For head-enabled page requests through `handleRequest()`, the server injects:
 

@@ -329,12 +329,28 @@ The backend may throw:
 
 ## 9. Request Handling
 
-`handleHeadTagRequest()` is the scoped helper for the JSON endpoint used by client head-tag loaders. `handleRequest()` handles document requests and still supports head API requests as a convenience.
+`handleSpaRequest()` serves SPA document requests without any server head-tag work. It accepts either a server-safe `routeManifest` or a parsed `spa-routes.gen.json` manifest. `handleHeadTagRequest()` is the scoped helper for the JSON endpoint used by client head-tag loaders. `handleRequest()` composes both concerns as a convenience when you want SPA document handling plus server head tags.
+
+```ts
+import { handleSpaRequest } from '@richie-router/server';
+
+const template = await Bun.file('./frontend/index.html').text();
+
+const spaHandled = await handleSpaRequest(request, {
+  spaRoutesManifest,
+  basePath: '/project',
+  html: {
+    template,
+  },
+});
+
+if (spaHandled.matched) return spaHandled.response;
+```
+
+If you also want Richie Router to resolve server head tags, use `handleHeadTagRequest()` directly or let `handleRequest()` handle both concerns:
 
 ```ts
 import { handleHeadTagRequest, handleRequest } from '@richie-router/server';
-
-const template = await Bun.file('./frontend/index.html').text();
 
 const headHandled = await handleHeadTagRequest(request, {
   headTags,
@@ -355,7 +371,7 @@ const handled = await handleRequest(request, {
 if (handled.matched) return handled.response;
 ```
 
-`basePath` on `handleRequest()` is the SPA document prefix. It strips that prefix before matching the route manifest and prefixes redirect responses with it. `headBasePath` is separate and still refers to the concrete head API endpoint path. If you omit `headBasePath`, `handleRequest()` defaults it to `${basePath}/head-api` when `basePath` is set, otherwise `/head-api`.
+`basePath` on `handleSpaRequest()` and `handleRequest()` is the SPA document prefix. It strips that prefix before matching backend SPA routes, and `handleRequest()` also prefixes redirect responses with it. `headBasePath` is separate and still refers to the concrete head API endpoint path. If you omit `headBasePath`, `handleRequest()` defaults it to `${basePath}/head-api` when `basePath` is set, otherwise `/head-api`.
 
 If you call `handleHeadTagRequest()` directly, pass the actual endpoint path for your deployment, for example `'/head-api'` or `'/project/head-api'`.
 
@@ -374,9 +390,9 @@ Required template shape:
 </html>
 ```
 
-`<!--richie-router-head-->` is the only `@richie-router/` placeholder.
+`<!--richie-router-head-->` is the only `@richie-router/` placeholder. `handleSpaRequest()` replaces it with an empty string.
 
-For page requests, the server injects:
+For head-enabled page requests through `handleRequest()`, the server injects:
 
 - serialized head tags for all matched routes with `serverHead: true`
 - a small bootstrap script that sets `window.__RICHIE_ROUTER_HEAD__`

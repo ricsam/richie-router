@@ -9,6 +9,7 @@ import {
   type InferRouterSearchSchema,
   isNotFound,
   isRedirect,
+  matchPathname,
   matchRouteTree,
   resolveHeadConfig,
   serializeHeadConfig,
@@ -64,13 +65,33 @@ export interface HtmlOptions {
       }) => string | Promise<string>);
 }
 
+export interface SpaRoutesManifestRoute {
+  id: string;
+  to: string;
+  parentId: string | null;
+  isRoot: boolean;
+}
+
+export interface SpaRoutesManifest {
+  routes: SpaRoutesManifestRoute[];
+  spaRoutes: string[];
+}
+
+interface BaseHandleSpaRequestOptions {
+  html: HtmlOptions;
+  basePath?: string;
+}
+
+export type HandleSpaRequestOptions =
+  | ({ routeManifest: AnyRoute } & BaseHandleSpaRequestOptions)
+  | ({ spaRoutesManifest: SpaRoutesManifest } & BaseHandleSpaRequestOptions);
+
 export interface HandleRequestOptions<TRouteManifest extends AnyRoute, TRouterSchema extends RouterSchemaShape> {
   routeManifest: TRouteManifest;
   headTags: DefinedHeadTags<TRouteManifest, TRouterSchema>;
   html: HtmlOptions;
   basePath?: string;
   headBasePath?: string;
-  routeBasePath?: string;
 }
 
 export interface HandleHeadTagRequestOptions<TRouteManifest extends AnyRoute, TRouterSchema extends RouterSchemaShape> {
@@ -85,6 +106,7 @@ export interface HandleRequestResult {
 
 const HEAD_PLACEHOLDER = '<!--richie-router-head-->';
 const MANAGED_HEAD_ATTRIBUTE = 'data-richie-router-head';
+const EMPTY_HEAD: HeadConfig = { meta: [], links: [], styles: [], scripts: [] };
 
 function ensureLeadingSlash(value: string): string {
   return value.startsWith('/') ? value : `/${value}`;
@@ -168,6 +190,58 @@ function jsonResponse(data: unknown, init?: ResponseInit): Response {
   });
 }
 
+function notFoundResult(): HandleRequestResult {
+  return {
+    matched: false,
+    response: new Response('Not Found', { status: 404 }),
+  };
+}
+
+function htmlResponse(html: string): Response {
+  return new Response(html, {
+    status: 200,
+    headers: {
+      'content-type': 'text/html; charset=utf-8',
+    },
+  });
+}
+
+function resolveDocumentRequest(
+  request: Request,
+  basePathOption?: string,
+): { basePath: string; location: ParsedLocation } | null {
+  const url = new URL(request.url);
+  const basePath = normalizeBasePath(basePathOption);
+  const strippedPathname = stripBasePathFromPathname(url.pathname, basePath);
+
+  if (strippedPathname === null) {
+    return null;
+  }
+
+  return {
+    basePath,
+    location: createParsedLocation(`${strippedPathname}${url.search}${url.hash}`, null, defaultParseSearch),
+  };
+}
+
+async function renderDocumentResponse(
+  request: Request,
+  html: HtmlOptions,
+  richieRouterHead: string,
+  head: HeadConfig,
+): Promise<HandleRequestResult> {
+  const template = await renderTemplate(html, {
+    request,
+    richieRouterHead,
+    head,
+  });
+
+  return {
+    matched: true,
+    response: htmlResponse(template),
+  };
+}
+
 function resolveSearch(route: AnyRoute, rawSearch: Record<string, unknown>): unknown {
   const fromSchema = route.searchSchema ? route.searchSchema.parse(rawSearch) : {};
   if (routeHasRecord(fromSchema)) {
@@ -204,6 +278,27 @@ function buildMatches(routeManifest: AnyRoute, location: ParsedLocation): RouteM
       to: route.to,
     };
   });
+}
+
+function resolveSpaRoutes(spaRoutesManifest: SpaRoutesManifest): string[] {
+  if (!routeHasRecord(spaRoutesManifest)) {
+    throw new Error('Invalid spaRoutesManifest: expected an object.');
+  }
+
+  const { spaRoutes } = spaRoutesManifest;
+  if (!Array.isArray(spaRoutes) || spaRoutes.some(route => typeof route !== 'string')) {
+    throw new Error('Invalid spaRoutesManifest: expected "spaRoutes" to be an array of strings.');
+  }
+
+  return spaRoutes;
+}
+
+function matchesSpaRequest(options: HandleSpaRequestOptions, location: ParsedLocation): boolean {
+  if ('routeManifest' in options) {
+    return buildMatches(options.routeManifest, location).length > 0;
+  }
+
+  return resolveSpaRoutes(options.spaRoutesManifest).some(route => matchPathname(route, location.pathname) !== null);
 }
 
 async function executeHeadTag<TRouteManifest extends AnyRoute, TRouterSchema extends RouterSchemaShape>(
@@ -304,12 +399,28 @@ export async function handleHeadTagRequest<TRouteManifest extends AnyRoute, TRou
   }
 }
 
+export async function handleSpaRequest(
+  request: Request,
+  options: HandleSpaRequestOptions,
+): Promise<HandleRequestResult> {
+  const documentRequest = resolveDocumentRequest(request, options.basePath);
+
+  if (documentRequest === null) {
+    return notFoundResult();
+  }
+
+  if (!matchesSpaRequest(options, documentRequest.location)) {
+    return notFoundResult();
+  }
+
+  return await renderDocumentResponse(request, options.html, '', EMPTY_HEAD);
+}
+
 export async function handleRequest<TRouteManifest extends AnyRoute, TRouterSchema extends RouterSchemaShape>(
   request: Request,
   options: HandleRequestOptions<TRouteManifest, TRouterSchema>,
 ): Promise<HandleRequestResult> {
-  const url = new URL(request.url);
-  const basePath = normalizeBasePath(options.basePath ?? options.routeBasePath);
+  const basePath = normalizeBasePath(options.basePath);
   const headBasePath = options.headBasePath ?? prependBasePathToPathname('/head-api', basePath);
   const handledHeadTagRequest = await handleHeadTagRequest(request, {
     headTags: options.headTags,
@@ -320,23 +431,15 @@ export async function handleRequest<TRouteManifest extends AnyRoute, TRouterSche
     return handledHeadTagRequest;
   }
 
-  const strippedPathname = stripBasePathFromPathname(url.pathname, basePath);
-
-  if (strippedPathname === null) {
-    return {
-      matched: false,
-      response: new Response('Not Found', { status: 404 }),
-    };
+  const documentRequest = resolveDocumentRequest(request, basePath);
+  if (documentRequest === null) {
+    return notFoundResult();
   }
 
-  const location = createParsedLocation(`${strippedPathname}${url.search}${url.hash}`, null, defaultParseSearch);
-  const matches = buildMatches(options.routeManifest, location);
+  const matches = buildMatches(options.routeManifest, documentRequest.location);
 
   if (matches.length === 0) {
-    return {
-      matched: false,
-      response: new Response('Not Found', { status: 404 }),
-    };
+    return notFoundResult();
   }
 
   try {
@@ -344,27 +447,13 @@ export async function handleRequest<TRouteManifest extends AnyRoute, TRouterSche
     const headHtml = serializeHeadConfig(head, {
       managedAttribute: MANAGED_HEAD_ATTRIBUTE,
     });
-    const richieRouterHead = `${headHtml}${createHeadSnapshotScript(location.href, head)}`;
-    const html = await renderTemplate(options.html, {
-      request,
-      richieRouterHead,
-      head,
-    });
-
-    return {
-      matched: true,
-      response: new Response(html, {
-        status: 200,
-        headers: {
-          'content-type': 'text/html; charset=utf-8',
-        },
-      }),
-    };
+    const richieRouterHead = `${headHtml}${createHeadSnapshotScript(documentRequest.location.href, head)}`;
+    return await renderDocumentResponse(request, options.html, richieRouterHead, head);
   } catch (error) {
     if (isRedirect(error)) {
       const redirectPath = prependBasePathToPathname(
         buildPath(error.options.to, error.options.params ?? {}),
-        basePath,
+        documentRequest.basePath,
       );
       const redirectSearch = defaultStringifySearch(
         error.options.search === true ? {} : error.options.search ?? {},

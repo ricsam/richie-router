@@ -19,8 +19,8 @@ function AboutPage() {
         exactly the way a consumer application would.
       </p>
       <p>
-        The generated files now split into a client route tree and a server-safe route manifest so the backend never
-        has to import your frontend route modules.
+        The generated files now split into a client route tree, a server-safe route manifest, and an optional JSON SPA
+        route list so the backend never has to import your frontend route modules.
       </p>
     </article>
   );

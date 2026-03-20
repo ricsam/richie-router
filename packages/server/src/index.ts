@@ -68,6 +68,7 @@ export interface HandleRequestOptions<TRouteManifest extends AnyRoute, TRouterSc
   routeManifest: TRouteManifest;
   headTags: DefinedHeadTags<TRouteManifest, TRouterSchema>;
   html: HtmlOptions;
+  basePath?: string;
   headBasePath?: string;
   routeBasePath?: string;
 }
@@ -84,6 +85,48 @@ export interface HandleRequestResult {
 
 const HEAD_PLACEHOLDER = '<!--richie-router-head-->';
 const MANAGED_HEAD_ATTRIBUTE = 'data-richie-router-head';
+
+function ensureLeadingSlash(value: string): string {
+  return value.startsWith('/') ? value : `/${value}`;
+}
+
+function normalizeBasePath(basePath?: string): string {
+  if (!basePath) {
+    return '';
+  }
+
+  const trimmed = basePath.trim();
+  if (trimmed === '' || trimmed === '/') {
+    return '';
+  }
+
+  const normalized = ensureLeadingSlash(trimmed).replace(/\/+$/u, '');
+  return normalized === '/' ? '' : normalized;
+}
+
+function stripBasePathFromPathname(pathname: string, basePath: string): string | null {
+  if (!basePath) {
+    return pathname;
+  }
+
+  if (pathname === basePath) {
+    return '/';
+  }
+
+  if (pathname.startsWith(`${basePath}/`)) {
+    return pathname.slice(basePath.length) || '/';
+  }
+
+  return null;
+}
+
+function prependBasePathToPathname(pathname: string, basePath: string): string {
+  if (!basePath) {
+    return pathname;
+  }
+
+  return pathname === '/' ? basePath : `${basePath}${ensureLeadingSlash(pathname)}`;
+}
 
 function routeHasRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
@@ -266,24 +309,27 @@ export async function handleRequest<TRouteManifest extends AnyRoute, TRouterSche
   options: HandleRequestOptions<TRouteManifest, TRouterSchema>,
 ): Promise<HandleRequestResult> {
   const url = new URL(request.url);
-  const routeBasePath = options.routeBasePath ?? '/';
+  const basePath = normalizeBasePath(options.basePath ?? options.routeBasePath);
+  const headBasePath = options.headBasePath ?? prependBasePathToPathname('/head-api', basePath);
   const handledHeadTagRequest = await handleHeadTagRequest(request, {
     headTags: options.headTags,
-    headBasePath: options.headBasePath,
+    headBasePath,
   });
 
   if (handledHeadTagRequest.matched) {
     return handledHeadTagRequest;
   }
 
-  if (!url.pathname.startsWith(routeBasePath)) {
+  const strippedPathname = stripBasePathFromPathname(url.pathname, basePath);
+
+  if (strippedPathname === null) {
     return {
       matched: false,
       response: new Response('Not Found', { status: 404 }),
     };
   }
 
-  const location = createParsedLocation(`${url.pathname}${url.search}${url.hash}`, null, defaultParseSearch);
+  const location = createParsedLocation(`${strippedPathname}${url.search}${url.hash}`, null, defaultParseSearch);
   const matches = buildMatches(options.routeManifest, location);
 
   if (matches.length === 0) {
@@ -316,7 +362,10 @@ export async function handleRequest<TRouteManifest extends AnyRoute, TRouterSche
     };
   } catch (error) {
     if (isRedirect(error)) {
-      const redirectPath = buildPath(error.options.to, error.options.params ?? {});
+      const redirectPath = prependBasePathToPathname(
+        buildPath(error.options.to, error.options.params ?? {}),
+        basePath,
+      );
       const redirectSearch = defaultStringifySearch(
         error.options.search === true ? {} : error.options.search ?? {},
       );

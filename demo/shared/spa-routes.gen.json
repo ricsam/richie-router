@@ -1,0 +1,66 @@
+{
+  "routes": [
+    {
+      "id": "__root__",
+      "to": "/",
+      "parentId": null,
+      "isRoot": true
+    },
+    {
+      "id": "/",
+      "to": "/",
+      "parentId": "__root__",
+      "isRoot": false
+    },
+    {
+      "id": "/_auth",
+      "to": "/",
+      "parentId": "__root__",
+      "isRoot": false
+    },
+    {
+      "id": "/_auth/dashboard",
+      "to": "/dashboard",
+      "parentId": "/_auth",
+      "isRoot": false
+    },
+    {
+      "id": "/about",
+      "to": "/about",
+      "parentId": "__root__",
+      "isRoot": false
+    },
+    {
+      "id": "/posts",
+      "to": "/posts",
+      "parentId": "__root__",
+      "isRoot": false
+    },
+    {
+      "id": "/posts/",
+      "to": "/posts",
+      "parentId": "/posts",
+      "isRoot": false
+    },
+    {
+      "id": "/posts/$postId",
+      "to": "/posts/$postId",
+      "parentId": "/posts",
+      "isRoot": false
+    },
+    {
+      "id": "/search",
+      "to": "/search",
+      "parentId": "__root__",
+      "isRoot": false
+    }
+  ],
+  "spaRoutes": [
+    "/",
+    "/about",
+    "/dashboard",
+    "/posts",
+    "/posts/$postId",
+    "/search"
+  ]
+}

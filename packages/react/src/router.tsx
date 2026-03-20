@@ -205,6 +205,7 @@ export interface RouterState {
 export interface RouterOptions<TRouteTree extends AnyRoute> {
   routeTree: TRouteTree;
   history?: RouterHistory;
+  basePath?: string;
   defaultPreload?: 'intent' | 'render' | false;
   defaultPreloadDelay?: number;
   defaultPendingMs?: number;
@@ -237,6 +238,72 @@ const OutletContext = React.createContext<React.ReactNode>(null);
 const MatchContext = React.createContext<RouteMatch | null>(null);
 const MANAGED_HEAD_ATTRIBUTE = 'data-richie-router-head';
 const EMPTY_HEAD: HeadConfig = { meta: [], links: [], scripts: [], styles: [] };
+
+function ensureLeadingSlash(value: string): string {
+  return value.startsWith('/') ? value : `/${value}`;
+}
+
+function normalizeBasePath(basePath?: string): string {
+  if (!basePath) {
+    return '';
+  }
+
+  const trimmed = basePath.trim();
+  if (trimmed === '' || trimmed === '/') {
+    return '';
+  }
+
+  const normalized = ensureLeadingSlash(trimmed).replace(/\/+$/u, '');
+  return normalized === '/' ? '' : normalized;
+}
+
+function parseHref(href: string): URL {
+  if (href.startsWith('http://') || href.startsWith('https://')) {
+    return new URL(href);
+  }
+
+  return new URL(ensureLeadingSlash(href), 'http://richie-router.local');
+}
+
+function stripBasePathFromPathname(pathname: string, basePath: string): string {
+  if (!basePath) {
+    return pathname;
+  }
+
+  if (pathname === basePath) {
+    return '/';
+  }
+
+  return pathname.startsWith(`${basePath}/`) ? pathname.slice(basePath.length) || '/' : pathname;
+}
+
+function stripBasePathFromHref(href: string, basePath?: string): string {
+  const normalizedBasePath = normalizeBasePath(basePath);
+  if (!normalizedBasePath) {
+    return href;
+  }
+
+  const url = parseHref(href);
+  return `${stripBasePathFromPathname(url.pathname, normalizedBasePath)}${url.search}${url.hash}`;
+}
+
+function prependBasePathToPathname(pathname: string, basePath: string): string {
+  if (!basePath) {
+    return pathname;
+  }
+
+  return pathname === '/' ? basePath : `${basePath}${ensureLeadingSlash(pathname)}`;
+}
+
+function prependBasePathToHref(href: string, basePath?: string): string {
+  const normalizedBasePath = normalizeBasePath(basePath);
+  if (!normalizedBasePath) {
+    return href;
+  }
+
+  const url = parseHref(href);
+  return `${prependBasePathToPathname(url.pathname, normalizedBasePath)}${url.search}${url.hash}`;
+}
 
 function routeHasRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
@@ -342,6 +409,7 @@ export class Router<TRouteTree extends AnyRoute> {
   private readonly headCache = new Map<string, { head: HeadConfig; expiresAt: number }>();
   private readonly parseSearch: (searchStr: string) => Record<string, unknown>;
   private readonly stringifySearch: (search: Record<string, unknown>) => string;
+  private readonly basePath: string;
   private started = false;
   private unsubscribeHistory?: () => void;
 
@@ -351,6 +419,7 @@ export class Router<TRouteTree extends AnyRoute> {
     this.history = options.history ?? (typeof window === 'undefined' ? createMemoryHistory() : createBrowserHistory());
     this.parseSearch = options.parseSearch ?? defaultParseSearch;
     this.stringifySearch = options.stringifySearch ?? defaultStringifySearch;
+    this.basePath = normalizeBasePath(options.basePath);
 
     for (const route of collectRoutes(this.routeTree)) {
       this.routesByFullPath.set(route.fullPath, route);
@@ -361,9 +430,13 @@ export class Router<TRouteTree extends AnyRoute> {
     }
 
     const location = this.readLocation();
+    const rawHistoryHref = this.history.location.href;
     const initialHeadSnapshot = typeof window !== 'undefined' ? window.__RICHIE_ROUTER_HEAD__ : undefined;
     const initialHead =
-      initialHeadSnapshot && initialHeadSnapshot.href === location.href ? initialHeadSnapshot.head : EMPTY_HEAD;
+      initialHeadSnapshot &&
+      (initialHeadSnapshot.href === location.href || initialHeadSnapshot.href === rawHistoryHref)
+        ? initialHeadSnapshot.head
+        : EMPTY_HEAD;
 
     if (typeof window !== 'undefined' && initialHeadSnapshot !== undefined) {
       delete window.__RICHIE_ROUTER_HEAD__;
@@ -418,8 +491,7 @@ export class Router<TRouteTree extends AnyRoute> {
   }
 
   public async navigate<TTo extends RoutePaths>(options: NavigateOptions<TTo>): Promise<void> {
-    const href = this.buildHref(options);
-    const location = createParsedLocation(href, options.state ?? null, this.parseSearch);
+    const location = this.buildLocation(options);
 
     await this.commitLocation(location, {
       replace: options.replace ?? false,
@@ -429,8 +501,7 @@ export class Router<TRouteTree extends AnyRoute> {
   }
 
   public async preloadRoute<TTo extends RoutePaths>(options: NavigateOptions<TTo>): Promise<void> {
-    const href = this.buildHref(options);
-    const location = createParsedLocation(href, options.state ?? null, this.parseSearch);
+    const location = this.buildLocation(options);
 
     try {
       await this.resolveLocation(location);
@@ -445,6 +516,14 @@ export class Router<TRouteTree extends AnyRoute> {
   }
 
   public buildHref<TTo extends RoutePaths>(options: NavigateOptions<TTo>): string {
+    return prependBasePathToHref(this.buildLocationHref(options), this.basePath);
+  }
+
+  private buildLocation<TTo extends RoutePaths>(options: NavigateOptions<TTo>): ParsedLocation {
+    return createParsedLocation(this.buildLocationHref(options), options.state ?? null, this.parseSearch);
+  }
+
+  private buildLocationHref<TTo extends RoutePaths>(options: NavigateOptions<TTo>): string {
     const targetRoute = this.routesByTo.get(options.to) ?? null;
     const fromMatch = options.from ? this.findMatchByTo(options.from) : null;
     const previousParams = (fromMatch?.params ?? {}) as ParamsForTo<TTo>;
@@ -461,7 +540,7 @@ export class Router<TRouteTree extends AnyRoute> {
 
   private readLocation(): ParsedLocation {
     const location = this.history.location;
-    return createParsedLocation(location.href, location.state, this.parseSearch);
+    return createParsedLocation(stripBasePathFromHref(location.href, this.basePath), location.state, this.parseSearch);
   }
 
   private applyTrailingSlash(pathname: string, route?: AnyRoute | null): string {
@@ -654,7 +733,7 @@ export class Router<TRouteTree extends AnyRoute> {
     params: Record<string, string>,
     search: unknown,
   ): Promise<{ head: HeadConfig; staleTime?: number }> {
-    const basePath = this.options.headBasePath ?? '/head-api';
+    const basePath = this.options.headBasePath ?? prependBasePathToHref('/head-api', this.basePath);
     const searchParams = new URLSearchParams({
       routeId: route.fullPath,
       params: JSON.stringify(params),
@@ -688,12 +767,13 @@ export class Router<TRouteTree extends AnyRoute> {
       const resolved = await this.resolveLocation(location, {
         request: options.request,
       });
+      const historyHref = prependBasePathToHref(location.href, this.basePath);
 
       if (options.writeHistory) {
         if (options.replace) {
-          this.history.replace(location.href, location.state);
+          this.history.replace(historyHref, location.state);
         } else {
-          this.history.push(location.href, location.state);
+          this.history.push(historyHref, location.state);
         }
       }
 
@@ -716,12 +796,13 @@ export class Router<TRouteTree extends AnyRoute> {
       }
 
       const errorMatches = this.buildMatches(location);
+      const historyHref = prependBasePathToHref(location.href, this.basePath);
 
       if (options.writeHistory) {
         if (options.replace) {
-          this.history.replace(location.href, location.state);
+          this.history.replace(historyHref, location.state);
         } else {
-          this.history.push(location.href, location.state);
+          this.history.push(historyHref, location.state);
         }
       }
 
@@ -1089,7 +1170,7 @@ function useResolvedLink<TTo extends RoutePaths>(props: NavigateOptions<TTo>) {
   const router = useRouterContext();
   const href = router.buildHref(props);
   const location = useLocation();
-  const pathOnly = href.split(/[?#]/u)[0] ?? href;
+  const pathOnly = stripBasePathFromHref(href, router.options.basePath).split(/[?#]/u)[0] ?? href;
   const isActive = pathOnly === location.pathname;
   return { href, isActive, router };
 }

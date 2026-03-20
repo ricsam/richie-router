@@ -32,13 +32,13 @@ bun run test
 The important boundary is:
 
 - frontend route files live under `frontend/routes`
-- backend code imports a generated `route-manifest.gen.ts`, not the frontend route files
+- backend code imports a generated `route-manifest.gen.ts` (or reads `spa-routes.gen.json`), not the frontend route files
 - shared code contains Bun/browser-safe TypeScript such as Zod schemas
 - there is no React SSR; page requests return the SPA shell plus optional server-resolved head tags
 
 ## Generated Files
 
-`@richie-router/` generates two artifacts from your route files:
+`@richie-router/` generates these artifacts from your route files:
 
 1. `route-tree.gen.ts`
 
@@ -48,6 +48,11 @@ This is the client route tree. It imports route modules and powers the React run
 
 This is the server-safe route manifest. It contains route structure, path relationships, and shared route metadata from `routerSchema`, but it does not import frontend route files.
 
+3. `spa-routes.gen.json` (optional)
+
+This is a plain JSON manifest you can consume in any backend to decide which request paths should be handled by your SPA frontend.
+Route patterns in `spaRoutes` use the same file-route syntax (`$param`, `$`) as your generated route tree.
+
 ```ts
 import { generateRouteTree } from '@richie-router/tooling';
 
@@ -56,7 +61,20 @@ await generateRouteTree({
   routerSchema: './shared/router-schema.ts',
   output: './frontend/route-tree.gen.ts',
   manifestOutput: './shared/route-manifest.gen.ts',
+  jsonOutput: './shared/spa-routes.gen.json',
 });
+```
+
+The JSON file shape:
+
+```json
+{
+  "routes": [
+    { "id": "__root__", "to": "/", "parentId": null, "isRoot": true },
+    { "id": "/", "to": "/", "parentId": "__root__", "isRoot": false }
+  ],
+  "spaRoutes": ["/", "/posts", "/posts/$postId"]
+}
 ```
 
 `@richie-router/tooling` also exposes `watchRouteTree`, `richieRouterPlugin` for esbuild, and `richieRouter` for Vite.
@@ -215,7 +233,8 @@ import { routeTree } from './route-tree.gen';
 
 export const router = createRouter({
   routeTree,
-  headBasePath: '/head-api',
+  // Optional when the app is mounted under a sub-path such as /project/*
+  basePath: '/project',
   defaultPreload: 'intent',
   defaultPreloadDelay: 50,
   scrollRestoration: true,
@@ -224,6 +243,8 @@ export const router = createRouter({
 ```
 
 `RouterProvider` renders the matched route component tree and reconciles managed nodes in `document.head`.
+
+`basePath` and `headBasePath` are related but different. `basePath` is the SPA pathname prefix, such as `https://host.com/project/*`. It changes route matching, `useLocation()`, and generated link/history hrefs. `headBasePath` is only the JSON endpoint used by server head loaders. If you omit `headBasePath`, it defaults to `${basePath}/head-api` when `basePath` is set, otherwise `/head-api`. Override it explicitly if your head API lives somewhere else, for example `headBasePath: '/head-api'`.
 
 ```tsx
 import { createRoot } from 'react-dom/client';
@@ -253,7 +274,7 @@ if (headHandled.matched) return headHandled.response;
 const handled = await handleRequest(request, {
   routeManifest,
   headTags,
-  headBasePath: '/head-api',
+  basePath: '/project',
   html: {
     template,
   },
@@ -261,6 +282,10 @@ const handled = await handleRequest(request, {
 
 if (handled.matched) return handled.response;
 ```
+
+`basePath` on `handleRequest()` is the SPA document prefix. It strips that prefix before matching the route manifest and prefixes redirect responses with it. `headBasePath` is separate and still refers to the concrete head API endpoint path. If you omit `headBasePath`, `handleRequest()` defaults it to `${basePath}/head-api` when `basePath` is set, otherwise `/head-api`.
+
+If you call `handleHeadTagRequest()` directly, pass the actual endpoint path for your deployment, for example `'/head-api'` or `'/project/head-api'`.
 
 Required template shape:
 

@@ -4,10 +4,11 @@
 
 ## 1. Generate the route artifacts
 
-The tooling step produces two files:
+The tooling step produces these files:
 
 - `route-tree.gen.ts` for the client router
 - `route-manifest.gen.ts` for the backend head-tag matcher
+- `spa-routes.gen.json` (optional) for backend SPA-route forwarding rules
 - `router-schema.ts` for shared search schemas and server-head flags
 
 ```ts
@@ -18,6 +19,7 @@ await generateRouteTree({
   routerSchema: './shared/router-schema.ts',
   output: './frontend/route-tree.gen.ts',
   manifestOutput: './shared/route-manifest.gen.ts',
+  jsonOutput: './shared/spa-routes.gen.json',
 });
 ```
 
@@ -29,13 +31,16 @@ import { routeTree } from './route-tree.gen';
 
 export const router = createRouter({
   routeTree,
-  headBasePath: '/head-api',
+  // Optional when the app is mounted under a sub-path such as /project/*
+  basePath: '/project',
   defaultPreload: 'intent',
   defaultPreloadDelay: 50,
   scrollRestoration: true,
   scrollToTopSelectors: ['#main-content'],
 });
 ```
+
+`basePath` and `headBasePath` are related but different. `basePath` is the SPA pathname prefix, such as `https://host.com/project/*`. It changes route matching, `useLocation()`, and generated link/history hrefs. `headBasePath` is only the JSON endpoint used by server head loaders. If you omit `headBasePath`, it defaults to `${basePath}/head-api` when `basePath` is set, otherwise `/head-api`. Override it explicitly if your head API lives somewhere else, for example `headBasePath: '/head-api'`.
 
 ## 3. Register the router type
 

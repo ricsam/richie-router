@@ -233,7 +233,8 @@ import { routeTree } from './route-tree.gen';
 
 export const router = createRouter({
   routeTree,
-  headBasePath: '/head-api',
+  // Optional when the app is mounted under a sub-path such as /project/*
+  basePath: '/project',
   defaultPreload: 'intent',
   defaultPreloadDelay: 50,
   scrollRestoration: true,
@@ -242,6 +243,8 @@ export const router = createRouter({
 ```
 
 `RouterProvider` renders the matched route component tree and reconciles managed head tags in `document.head`.
+
+`basePath` and `headBasePath` are related but different. `basePath` is the SPA pathname prefix, such as `https://host.com/project/*`. It changes route matching, `useLocation()`, and generated link/history hrefs. `headBasePath` is only the JSON endpoint used by server head loaders. If you omit `headBasePath`, it defaults to `${basePath}/head-api` when `basePath` is set, otherwise `/head-api`. Override it explicitly if your head API lives somewhere else, for example `headBasePath: '/head-api'`.
 
 ```tsx
 import { createRoot } from 'react-dom/client';
@@ -343,7 +346,7 @@ if (headHandled.matched) return headHandled.response;
 const handled = await handleRequest(request, {
   routeManifest,
   headTags,
-  headBasePath: '/head-api',
+  basePath: '/project',
   html: {
     template,
   },
@@ -351,6 +354,10 @@ const handled = await handleRequest(request, {
 
 if (handled.matched) return handled.response;
 ```
+
+`basePath` on `handleRequest()` is the SPA document prefix. It strips that prefix before matching the route manifest and prefixes redirect responses with it. `headBasePath` is separate and still refers to the concrete head API endpoint path. If you omit `headBasePath`, `handleRequest()` defaults it to `${basePath}/head-api` when `basePath` is set, otherwise `/head-api`.
+
+If you call `handleHeadTagRequest()` directly, pass the actual endpoint path for your deployment, for example `'/head-api'` or `'/project/head-api'`.
 
 Required template shape:
 

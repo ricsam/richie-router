@@ -6,4 +6,5 @@ await generateRouteTree({
   routerSchema: path.resolve('demo/shared/router-schema.ts'),
   output: path.resolve('demo/frontend/route-tree.gen.ts'),
   manifestOutput: path.resolve('demo/shared/route-manifest.gen.ts'),
+  jsonOutput: path.resolve('demo/shared/spa-routes.gen.json'),
 });

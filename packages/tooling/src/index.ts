@@ -7,6 +7,7 @@ export interface GenerateRouteTreeOptions {
   routerSchema: string;
   output: string;
   manifestOutput?: string;
+  jsonOutput?: string;
   quoteStyle?: 'single' | 'double';
   semicolons?: boolean;
 }
@@ -281,6 +282,10 @@ function getManifestOutputPath(options: GenerateRouteTreeOptions): string | null
   return options.manifestOutput ? path.resolve(options.manifestOutput) : null;
 }
 
+function getJsonOutputPath(options: GenerateRouteTreeOptions): string | null {
+  return options.jsonOutput ? path.resolve(options.jsonOutput) : null;
+}
+
 function buildRouteCollections(routes: ScannedRouteFile[]) {
   const rootRoute = routes.find(route => route.isRoot);
   if (!rootRoute) {
@@ -310,6 +315,61 @@ function buildRouteCollections(routes: ScannedRouteFile[]) {
     childrenByParent,
     publicRouteMap,
   };
+}
+
+function isIndexRoute(route: ScannedRouteFile): boolean {
+  return !route.isRoot && route.id.endsWith('/');
+}
+
+function isPathlessRoute(route: ScannedRouteFile, routesById: Map<string, ScannedRouteFile>): boolean {
+  if (route.isRoot || isIndexRoute(route) || !route.parentId) {
+    return false;
+  }
+
+  const parentRoute = routesById.get(route.parentId);
+  if (!parentRoute) {
+    return false;
+  }
+
+  return route.to === parentRoute.to;
+}
+
+function canTerminateRoute(
+  route: ScannedRouteFile,
+  routesById: Map<string, ScannedRouteFile>,
+  childrenByParent: Map<string, ScannedRouteFile[]>,
+): boolean {
+  if (route.isRoot || isPathlessRoute(route, routesById)) {
+    return false;
+  }
+
+  const children = childrenByParent.get(route.id) ?? [];
+  if (children.length === 0) {
+    return true;
+  }
+
+  return !children.some(child => isIndexRoute(child));
+}
+
+function collectRegisteredSpaRoutes(
+  rootRoute: ScannedRouteFile,
+  routesById: Map<string, ScannedRouteFile>,
+  childrenByParent: Map<string, ScannedRouteFile[]>,
+): string[] {
+  const routes = new Set<string>();
+
+  function walk(route: ScannedRouteFile): void {
+    if (canTerminateRoute(route, routesById, childrenByParent)) {
+      routes.add(route.to);
+    }
+
+    for (const child of childrenByParent.get(route.id) ?? []) {
+      walk(child);
+    }
+  }
+
+  walk(rootRoute);
+  return [...routes].sort((left, right) => left.localeCompare(right));
 }
 
 function buildChildAssemblies(
@@ -537,6 +597,26 @@ function buildGeneratedManifestFile(routes: ScannedRouteFile[], options: Generat
   ].join('\n');
 }
 
+function buildGeneratedRoutesJson(routes: ScannedRouteFile[]): string {
+  const { rootRoute, nonRootRoutes, routesById, childrenByParent } = buildRouteCollections(routes);
+  const allRoutes = [rootRoute, ...nonRootRoutes];
+  const spaRoutes = collectRegisteredSpaRoutes(rootRoute, routesById, childrenByParent);
+
+  return `${JSON.stringify(
+    {
+      routes: allRoutes.map(route => ({
+        id: route.id,
+        to: route.to,
+        parentId: route.parentId,
+        isRoot: route.isRoot,
+      })),
+      spaRoutes,
+    },
+    null,
+    2,
+  )}\n`;
+}
+
 export async function generateRouteTree(options: GenerateRouteTreeOptions): Promise<void> {
   const routes = await scanRoutes(options);
   const generatedClient = buildGeneratedClientFile(routes, options);
@@ -546,6 +626,12 @@ export async function generateRouteTree(options: GenerateRouteTreeOptions): Prom
   if (manifestOutput) {
     const generatedManifest = buildGeneratedManifestFile(routes, options);
     await writeFile(manifestOutput, generatedManifest, 'utf8');
+  }
+
+  const jsonOutput = getJsonOutputPath(options);
+  if (jsonOutput) {
+    const generatedJson = buildGeneratedRoutesJson(routes);
+    await writeFile(jsonOutput, generatedJson, 'utf8');
   }
 }
 

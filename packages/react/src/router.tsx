@@ -24,6 +24,7 @@ import type {
   NormalizeRouteId,
   ParsedLocation,
   ResolveAllParams,
+  RouteHeadEntry,
   RouteMatch,
   RouteOptions as CoreRouteOptions,
   Simplify,
@@ -232,12 +233,23 @@ type InternalRouteMatch = RouteMatch & { id: string };
 
 type Selector<TSelection> = (state: RouterState) => TSelection;
 
+type CachedHeadEntry = {
+  head: HeadConfig;
+  expiresAt: number;
+};
+
+type DocumentHeadResponsePayload = {
+  head: HeadConfig;
+  routeHeads?: RouteHeadEntry[];
+  staleTime?: number;
+};
+
 const RouterContext = React.createContext<Router<AnyRoute> | null>(null);
 const RouterStateContext = React.createContext<RouterState | null>(null);
 const OutletContext = React.createContext<React.ReactNode>(null);
 const MatchContext = React.createContext<RouteMatch | null>(null);
 const MANAGED_HEAD_ATTRIBUTE = 'data-richie-router-head';
-const EMPTY_HEAD: HeadConfig = { meta: [], links: [], scripts: [], styles: [] };
+const EMPTY_HEAD: HeadConfig = [];
 
 function ensureLeadingSlash(value: string): string {
   return value.startsWith('/') ? value : `/${value}`;
@@ -307,6 +319,15 @@ function prependBasePathToHref(href: string, basePath?: string): string {
 
 function routeHasRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
+}
+
+function routeHasInlineHead(route: AnyRoute): boolean {
+  const headOption = route.options.head;
+  return Boolean(headOption && typeof headOption !== 'string');
+}
+
+function matchesHaveInlineHead(matches: RouteMatch[]): boolean {
+  return matches.some(match => routeHasInlineHead(match.route));
 }
 
 function resolveParamsInput<TParams extends Record<string, string>>(
@@ -406,10 +427,11 @@ export class Router<TRouteTree extends AnyRoute> {
   public readonly routesByFullPath = new Map<string, AnyRoute>();
   public readonly routesByTo = new Map<string, AnyRoute>();
   private readonly listeners = new Set<() => void>();
-  private readonly headCache = new Map<string, { head: HeadConfig; expiresAt: number }>();
+  private readonly headCache = new Map<string, CachedHeadEntry>();
   private readonly parseSearch: (searchStr: string) => Record<string, unknown>;
   private readonly stringifySearch: (search: Record<string, unknown>) => string;
   private readonly basePath: string;
+  private initialHeadSnapshot?: DehydratedHeadState;
   private started = false;
   private unsubscribeHistory?: () => void;
 
@@ -430,22 +452,36 @@ export class Router<TRouteTree extends AnyRoute> {
     }
 
     const location = this.readLocation();
+    const initialMatches = this.buildMatches(location);
     const rawHistoryHref = this.history.location.href;
     const initialHeadSnapshot = typeof window !== 'undefined' ? window.__RICHIE_ROUTER_HEAD__ : undefined;
-    const initialHead =
+    const hasMatchingInitialHeadSnapshot = Boolean(
       initialHeadSnapshot &&
-      (initialHeadSnapshot.href === location.href || initialHeadSnapshot.href === rawHistoryHref)
+      (initialHeadSnapshot.href === location.href || initialHeadSnapshot.href === rawHistoryHref),
+    );
+    const initialHead =
+      hasMatchingInitialHeadSnapshot && initialHeadSnapshot
         ? initialHeadSnapshot.head
         : EMPTY_HEAD;
+
+    if (
+      hasMatchingInitialHeadSnapshot &&
+      this.options.loadRouteHead === undefined &&
+      initialHeadSnapshot?.routeHeads !== undefined
+    ) {
+      this.seedHeadCacheFromRouteHeads(initialMatches, initialHeadSnapshot.routeHeads);
+    }
 
     if (typeof window !== 'undefined' && initialHeadSnapshot !== undefined) {
       delete window.__RICHIE_ROUTER_HEAD__;
     }
 
+    this.initialHeadSnapshot = hasMatchingInitialHeadSnapshot ? initialHeadSnapshot : undefined;
+
     this.state = {
       status: 'loading',
       location,
-      matches: this.buildMatches(location),
+      matches: initialMatches,
       head: initialHead,
       error: null,
     };
@@ -483,10 +519,17 @@ export class Router<TRouteTree extends AnyRoute> {
 
   public async load(options?: { request?: Request }): Promise<void> {
     const nextLocation = this.readLocation();
+    const initialHeadSnapshot =
+      this.initialHeadSnapshot?.href === nextLocation.href
+        ? this.initialHeadSnapshot
+        : undefined;
+    this.initialHeadSnapshot = undefined;
+
     await this.commitLocation(nextLocation, {
       request: options?.request,
       replace: true,
       writeHistory: false,
+      initialHeadSnapshot,
     });
   }
 
@@ -615,7 +658,7 @@ export class Router<TRouteTree extends AnyRoute> {
 
   public async resolveLocation(
     location: ParsedLocation,
-    options?: { request?: Request },
+    options?: { request?: Request; initialHeadSnapshot?: DehydratedHeadState },
   ): Promise<{ matches: InternalRouteMatch[]; head: HeadConfig; error: unknown }> {
     const matched = matchRouteTree(this.routeTree, location.pathname);
     if (!matched) {
@@ -665,7 +708,7 @@ export class Router<TRouteTree extends AnyRoute> {
       });
     }
 
-    const head = await this.resolveLocationHead(matches, location, options?.request);
+    const head = await this.resolveLocationHead(matches, location, options?.request, options?.initialHeadSnapshot);
     return { matches, head, error: null };
   }
 
@@ -673,7 +716,124 @@ export class Router<TRouteTree extends AnyRoute> {
     matches: InternalRouteMatch[],
     location: ParsedLocation,
     request?: Request,
+    initialHeadSnapshot?: DehydratedHeadState,
   ): Promise<HeadConfig> {
+    const resolvedHeadByRoute = new Map<string, HeadConfig>();
+    const serverMatches = matches.filter(match => match.route.serverHead);
+
+    if (serverMatches.length === 0) {
+      return resolveHeadConfig(matches, resolvedHeadByRoute);
+    }
+
+    if (this.options.loadRouteHead !== undefined) {
+      for (const match of serverMatches) {
+        resolvedHeadByRoute.set(
+          match.route.fullPath,
+          await this.loadRouteHead(match.route, match.params, match.search, location, request),
+        );
+      }
+
+      return resolveHeadConfig(matches, resolvedHeadByRoute);
+    }
+
+    if (
+      initialHeadSnapshot?.href === location.href &&
+      initialHeadSnapshot.routeHeads === undefined &&
+      !matchesHaveInlineHead(matches)
+    ) {
+      return initialHeadSnapshot.head;
+    }
+
+    let needsDocumentHeadFetch = false;
+
+    for (const match of serverMatches) {
+      const cachedHead = this.getCachedRouteHead(match.route.fullPath, match.params, match.search);
+      if (cachedHead) {
+        resolvedHeadByRoute.set(match.route.fullPath, cachedHead);
+        continue;
+      }
+
+      needsDocumentHeadFetch = true;
+    }
+
+    if (!needsDocumentHeadFetch) {
+      return resolveHeadConfig(matches, resolvedHeadByRoute);
+    }
+
+    const documentHead = await this.fetchDocumentHead(location);
+    if ((documentHead.routeHeads?.length ?? 0) === 0 && !matchesHaveInlineHead(matches)) {
+      return documentHead.head;
+    }
+
+    const routeHeadsById = this.cacheRouteHeadsFromDocument(matches, documentHead.routeHeads ?? []);
+
+    for (const match of serverMatches) {
+      const responseHead = routeHeadsById.get(match.route.fullPath);
+      if (responseHead) {
+        resolvedHeadByRoute.set(match.route.fullPath, responseHead);
+        continue;
+      }
+
+      const cachedHead = this.getCachedRouteHead(match.route.fullPath, match.params, match.search);
+      if (cachedHead) {
+        resolvedHeadByRoute.set(match.route.fullPath, cachedHead);
+        continue;
+      }
+
+      const response = await this.fetchRouteHead(match.route, match.params, match.search);
+      this.setRouteHeadCache(match.route.fullPath, match.params, match.search, response);
+      resolvedHeadByRoute.set(match.route.fullPath, response.head);
+    }
+
+    return resolveHeadConfig(matches, resolvedHeadByRoute);
+  }
+
+  private getRouteHeadCacheKey(
+    routeId: string,
+    params: Record<string, string>,
+    search: unknown,
+  ): string {
+    return JSON.stringify({
+      routeId,
+      params,
+      search,
+    });
+  }
+
+  private getCachedRouteHead(
+    routeId: string,
+    params: Record<string, string>,
+    search: unknown,
+  ): HeadConfig | null {
+    const cached = this.headCache.get(this.getRouteHeadCacheKey(routeId, params, search));
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.head;
+    }
+
+    return null;
+  }
+
+  private setRouteHeadCache(
+    routeId: string,
+    params: Record<string, string>,
+    search: unknown,
+    response: { head: HeadConfig; staleTime?: number },
+  ): void {
+    this.headCache.set(this.getRouteHeadCacheKey(routeId, params, search), {
+      head: response.head,
+      expiresAt: Date.now() + (response.staleTime ?? 0),
+    });
+  }
+
+  private seedHeadCacheFromRouteHeads(matches: InternalRouteMatch[], routeHeads: RouteHeadEntry[]): void {
+    this.cacheRouteHeadsFromDocument(matches, routeHeads);
+  }
+
+  private cacheRouteHeadsFromDocument(
+    matches: InternalRouteMatch[],
+    routeHeads: RouteHeadEntry[],
+  ): Map<string, HeadConfig> {
+    const routeHeadsById = new Map(routeHeads.map(entry => [entry.routeId, entry] as const));
     const resolvedHeadByRoute = new Map<string, HeadConfig>();
 
     for (const match of matches) {
@@ -681,13 +841,16 @@ export class Router<TRouteTree extends AnyRoute> {
         continue;
       }
 
-      resolvedHeadByRoute.set(
-        match.route.fullPath,
-        await this.loadRouteHead(match.route, match.params, match.search, location, request),
-      );
+      const entry = routeHeadsById.get(match.route.fullPath);
+      if (!entry) {
+        continue;
+      }
+
+      this.setRouteHeadCache(match.route.fullPath, match.params, match.search, entry);
+      resolvedHeadByRoute.set(match.route.fullPath, entry.head);
     }
 
-    return resolveHeadConfig(matches, resolvedHeadByRoute);
+    return resolvedHeadByRoute;
   }
 
   private async loadRouteHead(
@@ -697,15 +860,9 @@ export class Router<TRouteTree extends AnyRoute> {
     location: ParsedLocation,
     request?: Request,
   ): Promise<HeadConfig> {
-    const cacheKey = JSON.stringify({
-      routeId: route.fullPath,
-      params,
-      search,
-    });
-
-    const cached = this.headCache.get(cacheKey);
-    if (cached && cached.expiresAt > Date.now()) {
-      return cached.head;
+    const cachedHead = this.getCachedRouteHead(route.fullPath, params, search);
+    if (cachedHead) {
+      return cachedHead;
     }
 
     const response =
@@ -720,10 +877,7 @@ export class Router<TRouteTree extends AnyRoute> {
           })
         : await this.fetchRouteHead(route, params, search);
 
-    this.headCache.set(cacheKey, {
-      head: response.head,
-      expiresAt: Date.now() + (response.staleTime ?? 0),
-    });
+    this.setRouteHeadCache(route.fullPath, params, search, response);
 
     return response.head;
   }
@@ -752,9 +906,35 @@ export class Router<TRouteTree extends AnyRoute> {
     return (await response.json()) as { head: HeadConfig; staleTime?: number };
   }
 
+  private async fetchDocumentHead(
+    location: ParsedLocation,
+  ): Promise<DocumentHeadResponsePayload> {
+    const basePath = this.options.headBasePath ?? prependBasePathToHref('/head-api', this.basePath);
+    const searchParams = new URLSearchParams({
+      href: prependBasePathToHref(location.href, this.basePath),
+    });
+    const response = await fetch(`${basePath}?${searchParams.toString()}`);
+
+    if (!response.ok) {
+      if (response.status === 404) {
+        throw notFound();
+      }
+
+      throw new Error(`Failed to resolve server head for location "${location.href}"`);
+    }
+
+    return (await response.json()) as DocumentHeadResponsePayload;
+  }
+
   private async commitLocation(
     location: ParsedLocation,
-    options: { replace: boolean; writeHistory: boolean; resetScroll?: boolean; request?: Request },
+    options: {
+      replace: boolean;
+      writeHistory: boolean;
+      resetScroll?: boolean;
+      request?: Request;
+      initialHeadSnapshot?: DehydratedHeadState;
+    },
   ): Promise<void> {
     this.state = {
       ...this.state,
@@ -766,6 +946,7 @@ export class Router<TRouteTree extends AnyRoute> {
     try {
       const resolved = await this.resolveLocation(location, {
         request: options.request,
+        initialHeadSnapshot: options.initialHeadSnapshot,
       });
       const historyHref = prependBasePathToHref(location.href, this.basePath);
 
@@ -914,56 +1095,107 @@ function createManagedHeadElements(head: HeadConfig): HTMLElement[] {
     element.setAttribute(MANAGED_HEAD_ATTRIBUTE, 'true');
     return element;
   };
+  const setAttributes = (
+    element: HTMLElement,
+    attributes: Record<string, string | boolean | undefined>,
+  ) => {
+    for (const [key, value] of Object.entries(attributes)) {
+      if (value === undefined || value === false) {
+        continue;
+      }
 
-  for (const meta of head.meta ?? []) {
-    if ('title' in meta) {
-      const title = managed(document.createElement('title'));
-      title.textContent = meta.title;
-      elements.push(title);
+      if (value === true) {
+        element.setAttribute(key, '');
+        continue;
+      }
+
+      element.setAttribute(key, value);
+    }
+  };
+
+  for (const element of head) {
+    if (element.tag === 'title') {
       continue;
     }
 
-    const tag = managed(document.createElement('meta'));
-    if ('charset' in meta) {
-      tag.setAttribute('charset', meta.charset);
-    } else if ('name' in meta) {
-      tag.setAttribute('name', meta.name);
-      tag.setAttribute('content', meta.content);
-    } else if ('property' in meta) {
-      tag.setAttribute('property', meta.property);
-      tag.setAttribute('content', meta.content);
-    } else {
-      tag.setAttribute('http-equiv', meta.httpEquiv);
-      tag.setAttribute('content', meta.content);
+    if (element.tag === 'meta') {
+      const tag = managed(document.createElement('meta'));
+      if ('charset' in element) {
+        tag.setAttribute('charset', element.charset);
+      } else if ('name' in element) {
+        tag.setAttribute('name', element.name);
+        tag.setAttribute('content', element.content);
+      } else if ('property' in element) {
+        tag.setAttribute('property', element.property);
+        tag.setAttribute('content', element.content);
+      } else {
+        tag.setAttribute('http-equiv', element.httpEquiv);
+        tag.setAttribute('content', element.content);
+      }
+      elements.push(tag);
+      continue;
     }
-    elements.push(tag);
-  }
 
-  for (const link of head.links ?? []) {
-    const tag = managed(document.createElement('link'));
-    tag.setAttribute('rel', link.rel);
-    tag.setAttribute('href', link.href);
-    if (link.type) tag.setAttribute('type', link.type);
-    if (link.media) tag.setAttribute('media', link.media);
-    if (link.sizes) tag.setAttribute('sizes', link.sizes);
-    if (link.crossorigin) tag.setAttribute('crossorigin', link.crossorigin);
-    elements.push(tag);
-  }
+    if (element.tag === 'link') {
+      const tag = managed(document.createElement('link'));
+      setAttributes(tag, {
+        rel: element.rel,
+        href: element.href,
+        type: element.type,
+        media: element.media,
+        sizes: element.sizes,
+        crossorigin: element.crossorigin,
+      });
+      elements.push(tag);
+      continue;
+    }
 
-  for (const style of head.styles ?? []) {
-    const tag = managed(document.createElement('style'));
-    if (style.media) tag.setAttribute('media', style.media);
-    tag.textContent = style.children;
-    elements.push(tag);
-  }
+    if (element.tag === 'style') {
+      const tag = managed(document.createElement('style'));
+      if (element.media) {
+        tag.setAttribute('media', element.media);
+      }
+      tag.textContent = element.children;
+      elements.push(tag);
+      continue;
+    }
 
-  for (const script of head.scripts ?? []) {
-    const tag = managed(document.createElement('script')) as HTMLScriptElement;
-    if (script.src) tag.setAttribute('src', script.src);
-    if (script.type) tag.setAttribute('type', script.type);
-    if (script.async) tag.async = true;
-    if (script.defer) tag.defer = true;
-    if (script.children) tag.textContent = script.children;
+    if (element.tag === 'script') {
+      const tag = managed(document.createElement('script')) as HTMLScriptElement;
+      if (element.src) {
+        tag.setAttribute('src', element.src);
+      }
+      if (element.type) {
+        tag.setAttribute('type', element.type);
+      }
+      if (element.async) {
+        tag.async = true;
+      }
+      if (element.defer) {
+        tag.defer = true;
+      }
+      if (element.children) {
+        tag.textContent = element.children;
+      }
+      elements.push(tag);
+      continue;
+    }
+
+    if (element.tag === 'base') {
+      const tag = managed(document.createElement('base'));
+      tag.setAttribute('href', element.href);
+      if (element.target) {
+        tag.setAttribute('target', element.target);
+      }
+      elements.push(tag);
+      continue;
+    }
+
+    const tag = managed(document.createElement(element.name));
+    setAttributes(tag, element.attrs ?? {});
+    if (element.children) {
+      tag.textContent = element.children;
+    }
     elements.push(tag);
   }
 
@@ -973,6 +1205,14 @@ function createManagedHeadElements(head: HeadConfig): HTMLElement[] {
 function reconcileDocumentHead(head: HeadConfig): void {
   if (typeof document === 'undefined') {
     return;
+  }
+
+  const title = [...head]
+    .reverse()
+    .find(element => element.tag === 'title');
+
+  if (title && title.tag === 'title') {
+    document.title = title.children;
   }
 
   for (const element of Array.from(document.head.querySelectorAll(`[${MANAGED_HEAD_ATTRIBUTE}]`))) {

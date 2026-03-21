@@ -2,12 +2,10 @@ import { createFileRoute } from '@richie-router/react';
 
 export const Route = createFileRoute('/about')({
   component: AboutPage,
-  head: {
-    meta: [
-      { title: 'About Richie Router' },
-      { name: 'description', content: 'What this demo is exercising and why.' },
-    ],
-  },
+  head: [
+    { tag: 'title', children: 'About Richie Router' },
+    { tag: 'meta', name: 'description', content: 'What this demo is exercising and why.' },
+  ],
 });
 
 function AboutPage() {

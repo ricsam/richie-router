@@ -271,12 +271,14 @@ import { routerSchema } from '../shared/router-schema';
 export const headTags = defineHeadTags(routeManifest, routerSchema, {
   __root__: {
     staleTime: 60_000,
-    head: async () => ({
-      meta: [
-        { title: '@richie-router/ Demo' },
-        { name: 'description', content: 'SPA routing with server head tags.' },
-      ],
-    }),
+    head: async () => [
+      { tag: 'title', children: '@richie-router/ Demo' },
+      {
+        tag: 'meta',
+        name: 'description',
+        content: 'SPA routing with server head tags.',
+      },
+    ],
   },
 
   '/posts/$postId': {
@@ -285,24 +287,24 @@ export const headTags = defineHeadTags(routeManifest, routerSchema, {
       const post = await db.posts.findUnique({ where: { id: params.postId } });
       if (!post) throw new Response('Not Found', { status: 404 });
 
-      return {
-        meta: [
-          { title: `${post.title} | @richie-router/ Demo` },
-          { name: 'description', content: post.excerpt },
-          { property: 'og:title', content: post.title },
-        ],
-      };
+      return [
+        { tag: 'title', children: `${post.title} | @richie-router/ Demo` },
+        { tag: 'meta', name: 'description', content: post.excerpt },
+        { tag: 'meta', property: 'og:title', content: post.title },
+      ];
     },
   },
 
   '/search': {
     staleTime: 5_000,
-    head: async ({ search }) => ({
-      meta: [
-        { title: `Search: ${search.query}` },
-        { name: 'description', content: `Search page for "${search.query}".` },
-      ],
-    }),
+    head: async ({ search }) => [
+      { tag: 'title', children: `Search: ${search.query}` },
+      {
+        tag: 'meta',
+        name: 'description',
+        content: `Search page for "${search.query}".`,
+      },
+    ],
   },
 });
 ```
@@ -323,13 +325,15 @@ The backend may throw:
 - `notFound()`
 - `redirect()`
 
-`staleTime` is used by the client head cache for repeated navigations.
+Set `staleTime` on each server head definition. The client reuses matching route-level entries for repeated navigations, and document head responses derive their top-level `staleTime` from the shortest matched value.
+
+`HeadConfig` is a single array of first-class head elements. Use `tag: 'custom'` when you need an arbitrary `<head>` node.
 
 ---
 
 ## 9. Request Handling
 
-`matchesSpaRequest()` is the low-level matcher for deciding whether a request should be handled by your SPA shell. `handleSpaRequest()` builds on that and serves SPA document requests without any server head-tag work. It accepts either a server-safe `routeManifest` or a parsed `spa-routes.gen.json` manifest. `handleHeadTagRequest()` is the scoped helper for the JSON endpoint used by client head-tag loaders. `handleRequest()` composes both concerns as a convenience when you want SPA document handling plus server head tags.
+`matchesSpaRequest()` is the low-level matcher for deciding whether a request should be handled by your SPA shell. `handleSpaRequest()` builds on that and serves SPA document requests without any server head-tag work. It accepts either a server-safe `routeManifest` or a parsed `spa-routes.gen.json` manifest. `handleHeadRequest()` is the scoped helper for the JSON endpoint used by client head-tag loaders and host-owned HTML shells. `handleHeadTagRequest()` remains as a backwards-compatible alias. `handleRequest()` composes both concerns as a convenience when you want SPA document handling plus server head tags.
 
 ```ts
 import { matchesSpaRequest } from '@richie-router/server';
@@ -361,12 +365,12 @@ const spaHandled = await handleSpaRequest(request, {
 if (spaHandled.matched) return spaHandled.response;
 ```
 
-If you also want Richie Router to resolve server head tags, use `handleHeadTagRequest()` directly or let `handleRequest()` handle both concerns:
+If you also want Richie Router to resolve server head tags, use `handleHeadRequest()` directly or let `handleRequest()` handle both concerns:
 
 ```ts
-import { handleHeadTagRequest, handleRequest } from '@richie-router/server';
+import { handleHeadRequest, handleRequest } from '@richie-router/server';
 
-const headHandled = await handleHeadTagRequest(request, {
+const headHandled = await handleHeadRequest(request, {
   headTags,
   basePath: '/project',
 });
@@ -385,9 +389,9 @@ const handled = await handleRequest(request, {
 if (handled.matched) return handled.response;
 ```
 
-`basePath` on `matchesSpaRequest()`, `handleSpaRequest()`, and `handleRequest()` is the SPA document prefix. It strips that prefix before matching backend SPA routes, and `handleRequest()` also prefixes redirect responses with it. `headBasePath` is separate and still refers to the concrete head API endpoint path. If you omit `headBasePath`, both `handleHeadTagRequest()` and `handleRequest()` default it to `${basePath}/head-api` when `basePath` is set, otherwise `/head-api`.
+`basePath` on `matchesSpaRequest()`, `handleSpaRequest()`, and `handleRequest()` is the SPA document prefix. It strips that prefix before matching backend SPA routes, and `handleRequest()` also prefixes redirect responses with it. `headBasePath` is separate and still refers to the concrete head API endpoint path. If you omit `headBasePath`, both `handleHeadRequest()` and `handleRequest()` default it to `${basePath}/head-api` when `basePath` is set, otherwise `/head-api`.
 
-If you call `handleHeadTagRequest()` directly, pass either `basePath`, the actual `headBasePath`, or both when your head API lives somewhere custom.
+If you call `handleHeadRequest()` directly, pass either `basePath`, the actual `headBasePath`, or both when your head API lives somewhere custom. Route head requests still use `?routeId=...&params=...&search=...`. Host-owned shell requests can instead send `?href=/project/posts/hello-world` to receive `{ href, head, routeHeads, staleTime, richieRouterHead }` for the fully matched document head.
 
 Required template shape:
 
@@ -415,9 +419,19 @@ For head API requests, the server returns JSON:
 
 ```json
 {
-  "head": {
-    "meta": [{ "title": "Search: router" }]
-  },
+  "head": [{ "tag": "title", "children": "Search: router" }],
+  "routeHeads": [
+    {
+      "routeId": "__root__",
+      "head": [{ "tag": "title", "children": "Docs" }],
+      "staleTime": 60000
+    },
+    {
+      "routeId": "/search",
+      "head": [{ "tag": "title", "children": "Search: router" }],
+      "staleTime": 5000
+    }
+  ],
   "staleTime": 5000
 }
 ```
@@ -438,7 +452,7 @@ For head API requests, the server returns JSON:
 
 1. Client matches the route tree
 2. Client runs `beforeLoad`
-3. Client fetches any server heads for routes with `serverHead: true`
+3. Client reuses fresh cached server head entries when available, otherwise fetches one document head payload by `href`
 4. Client evaluates client-only head objects/functions
 5. Client reconciles managed nodes in `document.head`
 
@@ -656,10 +670,14 @@ Schema:
 Head:
 
 - `HeadConfig`
-- `HeadTag`
+- `HeadElementTag`
+- `HeadTitleTag`
+- `HeadMetaTag`
 - `HeadLinkTag`
 - `HeadStyleTag`
 - `HeadScriptTag`
+- `HeadBaseTag`
+- `HeadCustomElementTag`
 - `serializeHeadConfig`
 - `resolveHeadConfig`
 

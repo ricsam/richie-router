@@ -31,17 +31,17 @@ export const headTags = defineHeadTags(routeManifest, routerSchema, {
     head: async ({ params }) => {
       const post = await loadPostMeta(params.postId);
 
-      return {
-        meta: [
-          { title: `${post.title} | @richie-router/` },
-          { name: 'description', content: post.excerpt },
-          { property: 'og:title', content: post.title },
-          { property: 'og:image', content: post.coverImage },
-        ],
-        links: [
-          { rel: 'canonical', href: `https://example.com/posts/${post.id}` },
-        ],
-      };
+      return [
+        { tag: 'title', children: `${post.title} | @richie-router/` },
+        { tag: 'meta', name: 'description', content: post.excerpt },
+        { tag: 'meta', property: 'og:title', content: post.title },
+        { tag: 'meta', property: 'og:image', content: post.coverImage },
+        {
+          tag: 'link',
+          rel: 'canonical',
+          href: `https://example.com/posts/${post.id}`,
+        },
+      ];
     },
   },
 });
@@ -54,12 +54,14 @@ If the metadata does not need to be present in the initial HTML response, use a 
 ```tsx
 export const Route = createFileRoute('/about')({
   component: AboutPage,
-  head: {
-    meta: [
-      { title: 'About @richie-router/' },
-      { name: 'description', content: 'Client-only metadata for a static page.' },
-    ],
-  },
+  head: [
+    { tag: 'title', children: 'About @richie-router/' },
+    {
+      tag: 'meta',
+      name: 'description',
+      content: 'Client-only metadata for a static page.',
+    },
+  ],
 });
 ```
 

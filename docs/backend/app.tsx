@@ -214,12 +214,10 @@ const docsReferenceHtml = createDocsResponse('/openapi.json', {
 export const headTags = defineHeadTags(routeManifest, routerSchema, {
   __root__: {
     staleTime: 60_000,
-    head: async () => ({
-      meta: [
-        { title: '@richie-router/ Docs' },
-        { name: 'description', content: 'Search and browse the real markdown docs in this repository.' },
-      ],
-    }),
+    head: async () => ([
+      { tag: 'title', children: '@richie-router/ Docs' },
+      { tag: 'meta', name: 'description', content: 'Search and browse the real markdown docs in this repository.' },
+    ]),
   },
   '/docs/$slug': {
     staleTime: 60_000,
@@ -229,27 +227,24 @@ export const headTags = defineHeadTags(routeManifest, routerSchema, {
         throw new Response('Not Found', { status: 404 });
       }
 
-      return {
-        meta: [
-          { title: `${document.title} | @richie-router/ Docs` },
-          { name: 'description', content: document.excerpt },
-        ],
-      };
+      return [
+        { tag: 'title', children: `${document.title} | @richie-router/ Docs` },
+        { tag: 'meta', name: 'description', content: document.excerpt },
+      ];
     },
   },
   '/search': {
     staleTime: 10_000,
-    head: async ({ search }) => ({
-      meta: [
-        { title: search.q ? `Search: ${search.q} | @richie-router/ Docs` : 'Search | @richie-router/ Docs' },
-        {
-          name: 'description',
-          content: search.q
-            ? `Search results for "${search.q}" in the repository markdown files.`
-            : 'Search across the markdown files in this repository.',
-        },
-      ],
-    }),
+    head: async ({ search }) => ([
+      { tag: 'title', children: search.q ? `Search: ${search.q} | @richie-router/ Docs` : 'Search | @richie-router/ Docs' },
+      {
+        tag: 'meta',
+        name: 'description',
+        content: search.q
+          ? `Search results for "${search.q}" in the repository markdown files.`
+          : 'Search across the markdown files in this repository.',
+      },
+    ]),
   },
 });
 

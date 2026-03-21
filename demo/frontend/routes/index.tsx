@@ -2,15 +2,14 @@ import { Link, createFileRoute } from '@richie-router/react';
 
 export const Route = createFileRoute('/')({
   component: IndexPage,
-  head: {
-    meta: [
-      { title: 'Richie Router Demo' },
-      {
-        name: 'description',
-        content: 'Browse the demo routes, typed links, server head tags, and client-rendered navigation.',
-      },
-    ],
-  },
+  head: [
+    { tag: 'title', children: 'Richie Router Demo' },
+    {
+      tag: 'meta',
+      name: 'description',
+      content: 'Browse the demo routes, typed links, server head tags, and client-rendered navigation.',
+    },
+  ],
 });
 
 function FeatureCard(props: { title: string; children: React.ReactNode }) {

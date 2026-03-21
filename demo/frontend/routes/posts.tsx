@@ -3,12 +3,10 @@ import { usePosts } from '../use-posts';
 
 export const Route = createFileRoute('/posts')({
   component: PostsLayout,
-  head: {
-    meta: [
-      { title: 'Post Library' },
-      { name: 'description', content: 'A nested route using client-rendered content and server head tags.' },
-    ],
-  },
+  head: [
+    { tag: 'title', children: 'Post Library' },
+    { tag: 'meta', name: 'description', content: 'A nested route using client-rendered content and server head tags.' },
+  ],
 });
 
 function PostsLayout() {

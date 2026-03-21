@@ -13,14 +13,12 @@ test.describe('demo app', () => {
 
     expect(response.ok()).toBeTruthy();
     expect(body).toEqual({
-      head: {
-        meta: [
-          { title: 'Alpha Release Notes | Richie Router Demo' },
-          { name: 'description', content: 'The first cut of Richie Router with generated file routes.' },
-          { property: 'og:title', content: 'Alpha Release Notes' },
-          { property: 'og:image', content: 'https://example.com/images/alpha.png' },
-        ],
-      },
+      head: [
+        { tag: 'title', children: 'Alpha Release Notes | Richie Router Demo' },
+        { tag: 'meta', name: 'description', content: 'The first cut of Richie Router with generated file routes.' },
+        { tag: 'meta', property: 'og:title', content: 'Alpha Release Notes' },
+        { tag: 'meta', property: 'og:image', content: 'https://example.com/images/alpha.png' },
+      ],
       staleTime: 10_000,
     });
   });

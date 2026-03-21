@@ -1,8 +1,12 @@
 import { describe, expect, test } from 'bun:test';
 import { defineRouterSchema, redirect, createRouteNode } from '@richie-router/core';
-import { defineHeadTags, handleHeadTagRequest, handleRequest, handleSpaRequest, matchesSpaRequest } from './index';
+import { defineHeadTags, handleHeadRequest, handleHeadTagRequest, handleRequest, handleSpaRequest, matchesSpaRequest } from './index';
 
-function createTestArtifacts(options?: { redirectAbout?: boolean }) {
+function createTestArtifacts(options?: {
+  redirectAbout?: boolean;
+  customHeadElement?: boolean;
+  aboutStaleTime?: number;
+}) {
   const rootRoute = createRouteNode('__root__', {}, { isRoot: true });
   const indexRoute = createRouteNode('/', {});
   const authRoute = createRouteNode('/_auth', {});
@@ -36,14 +40,23 @@ function createTestArtifacts(options?: { redirectAbout?: boolean }) {
 
   const headTags = defineHeadTags(rootRoute, routerSchema, {
     '/about': {
+      staleTime: options?.aboutStaleTime,
       head: () => {
         if (options?.redirectAbout) {
           redirect({ to: '/' });
         }
 
-        return {
-          meta: [{ title: 'About' }],
-        };
+        return [
+          { tag: 'title', children: 'About' },
+          ...(options?.customHeadElement
+            ? [{
+                tag: 'link' as const,
+                rel: 'icon',
+                href: '/favicon.ico',
+                sizes: 'any',
+              }]
+            : []),
+        ];
       },
     },
   });
@@ -249,9 +262,9 @@ describe('handleRequest basePath', () => {
     expect(result.matched).toBe(true);
     expect(result.response.status).toBe(200);
     expect(await result.response.json()).toEqual({
-      head: {
-        meta: [{ title: 'About' }],
-      },
+      head: [
+        { tag: 'title', children: 'About' },
+      ],
     });
   });
 
@@ -271,10 +284,137 @@ describe('handleRequest basePath', () => {
     expect(result.matched).toBe(true);
     expect(result.response.status).toBe(200);
     expect(await result.response.json()).toEqual({
-      head: {
-        meta: [{ title: 'About' }],
-      },
+      head: [
+        { tag: 'title', children: 'About' },
+      ],
     });
+  });
+
+  test('resolves merged document head payloads for host-rendered HTML shells', async () => {
+    const { headTags } = createTestArtifacts();
+
+    const result = await handleHeadRequest(
+      new Request(
+        'https://example.com/project/head-api?href=%2Fproject%2Fabout',
+      ),
+      {
+        headTags,
+        basePath: '/project',
+      },
+    );
+
+    expect(result.matched).toBe(true);
+    expect(result.response.status).toBe(200);
+
+    const payload = await result.response.json();
+    expect(payload.href).toBe('/about');
+    expect(payload.head).toEqual([
+      { tag: 'title', children: 'About' },
+    ]);
+    expect(payload.routeHeads).toEqual([
+      {
+        routeId: '/about',
+        head: [
+          { tag: 'title', children: 'About' },
+        ],
+      },
+    ]);
+    expect(payload.richieRouterHead).toContain('About</title>');
+    expect(payload.richieRouterHead).toContain('window.__RICHIE_ROUTER_HEAD__');
+    expect(result.response.headers.get('cache-control')).toBe('private, no-store');
+  });
+
+  test('returns redirect responses for document head payload requests', async () => {
+    const { headTags } = createTestArtifacts({
+      redirectAbout: true,
+    });
+
+    const result = await handleHeadRequest(
+      new Request(
+        'https://example.com/project/head-api?href=%2Fproject%2Fabout',
+      ),
+      {
+        headTags,
+        basePath: '/project',
+      },
+    );
+
+    expect(result.matched).toBe(true);
+    expect(result.response.status).toBe(302);
+    expect(result.response.headers.get('location')).toBe('/project');
+  });
+
+  test('serializes custom head elements for rich host templates', async () => {
+    const { headTags } = createTestArtifacts({
+      customHeadElement: true,
+    });
+
+    const result = await handleHeadRequest(
+      new Request(
+        'https://example.com/project/head-api?href=%2Fproject%2Fabout',
+      ),
+      {
+        headTags,
+        basePath: '/project',
+      },
+    );
+
+    const payload = await result.response.json();
+    expect(payload.richieRouterHead).toContain('<link rel="icon" href="/favicon.ico" sizes="any" data-richie-router-head="true">');
+  });
+
+  test('derives cache-control headers from route staleTime', async () => {
+    const { headTags } = createTestArtifacts({
+      aboutStaleTime: 60_000,
+    });
+
+    const result = await handleHeadRequest(
+      new Request(
+        'https://example.com/project/head-api?routeId=%2Fabout&params=%7B%7D&search=%7B%7D',
+      ),
+      {
+        headTags,
+        basePath: '/project',
+      },
+    );
+
+    expect(result.response.headers.get('cache-control')).toBe('private, max-age=60');
+    expect(await result.response.json()).toEqual({
+      head: [
+        { tag: 'title', children: 'About' },
+      ],
+      staleTime: 60_000,
+    });
+  });
+
+  test('derives document cache-control headers from the matched staleTime', async () => {
+    const { headTags } = createTestArtifacts({
+      aboutStaleTime: 5_000,
+    });
+
+    const result = await handleHeadRequest(
+      new Request(
+        'https://example.com/project/head-api?href=%2Fproject%2Fabout',
+      ),
+      {
+        headTags,
+        basePath: '/project',
+      },
+    );
+
+    expect(result.response.headers.get('cache-control')).toBe('private, max-age=5');
+
+    const payload = await result.response.json();
+    expect(payload.staleTime).toBe(5_000);
+    expect(payload.routeHeads).toEqual([
+      {
+        routeId: '/about',
+        head: [
+          { tag: 'title', children: 'About' },
+        ],
+        staleTime: 5_000,
+      },
+    ]);
   });
 
   test('preserves custom headers on successful document responses', async () => {

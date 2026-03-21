@@ -16,6 +16,7 @@ import {
   type AnyRoute,
   type HeadConfig,
   type ParsedLocation,
+  type RouteHeadEntry,
   type RouteMatch,
 } from '@richie-router/core';
 
@@ -112,9 +113,21 @@ export interface HandleRequestResult {
   response: Response;
 }
 
+export interface RouteHeadResponsePayload {
+  head: HeadConfig;
+  staleTime?: number;
+}
+
+export interface DocumentHeadResponsePayload extends RouteHeadResponsePayload {
+  href: string;
+  richieRouterHead: string;
+  routeHeads: RouteHeadEntry[];
+}
+
 const HEAD_PLACEHOLDER = '<!--richie-router-head-->';
 const MANAGED_HEAD_ATTRIBUTE = 'data-richie-router-head';
-const EMPTY_HEAD: HeadConfig = { meta: [], links: [], styles: [], scripts: [] };
+const HEAD_RESPONSE_KIND_HEADER = 'x-richie-router-head';
+const EMPTY_HEAD: HeadConfig = [];
 
 function ensureLeadingSlash(value: string): string {
   return value.startsWith('/') ? value : `/${value}`;
@@ -162,9 +175,16 @@ function routeHasRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
 
-function createHeadSnapshotScript(href: string, head: HeadConfig): string {
-  const payload = JSON.stringify({ href, head }).replaceAll('</script>', '<\\/script>');
+function createHeadSnapshotScript(href: string, head: HeadConfig, routeHeads: RouteHeadEntry[]): string {
+  const payload = JSON.stringify({ href, head, routeHeads }).replaceAll('</script>', '<\\/script>');
   return `<script ${MANAGED_HEAD_ATTRIBUTE}="true">window.__RICHIE_ROUTER_HEAD__=${payload}</script>`;
+}
+
+function createRichieRouterHead(href: string, head: HeadConfig, routeHeads: RouteHeadEntry[]): string {
+  const headHtml = serializeHeadConfig(head, {
+    managedAttribute: MANAGED_HEAD_ATTRIBUTE,
+  });
+  return `${headHtml}${createHeadSnapshotScript(href, head, routeHeads)}`;
 }
 
 async function renderTemplate(
@@ -196,12 +216,14 @@ async function renderTemplate(
 }
 
 function jsonResponse(data: unknown, init?: ResponseInit): Response {
+  const headers = new Headers(init?.headers);
+  if (!headers.has('content-type')) {
+    headers.set('content-type', 'application/json; charset=utf-8');
+  }
+
   return new Response(JSON.stringify(data), {
     ...init,
-    headers: {
-      'content-type': 'application/json; charset=utf-8',
-      ...(init?.headers ?? {}),
-    },
+    headers,
   });
 }
 
@@ -213,13 +235,47 @@ function notFoundResult(): HandleRequestResult {
 }
 
 function htmlResponse(html: string, headers?: HeadersInit): Response {
+  const responseHeaders = new Headers(headers);
+  if (!responseHeaders.has('content-type')) {
+    responseHeaders.set('content-type', 'text/html; charset=utf-8');
+  }
+
   return new Response(html, {
     status: 200,
-    headers: {
-      'content-type': 'text/html; charset=utf-8',
-      ...(headers ?? {}),
-    },
+    headers: responseHeaders,
   });
+}
+
+function withResponseHeaders(response: Response, headersToSet: HeadersInit): Response {
+  const headers = new Headers(response.headers);
+  new Headers(headersToSet).forEach((value, key) => {
+    headers.set(key, value);
+  });
+
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
+function formatHeadCacheControl(staleTime?: number): string {
+  if (staleTime === undefined) {
+    return 'private, no-store';
+  }
+
+  return `private, max-age=${Math.max(0, Math.floor(staleTime / 1000))}`;
+}
+
+function createHeadResponseHeaders(
+  kind: 'route' | 'document',
+  staleTime?: number,
+  headers?: HeadersInit,
+): Headers {
+  const responseHeaders = new Headers(headers);
+  responseHeaders.set(HEAD_RESPONSE_KIND_HEADER, kind);
+  responseHeaders.set('cache-control', formatHeadCacheControl(staleTime));
+  return responseHeaders;
 }
 
 function resolveDocumentRequest(
@@ -368,8 +424,10 @@ async function resolveMatchedHead<TRouteManifest extends AnyRoute, TRouterSchema
   request: Request,
   headTags: DefinedHeadTags<TRouteManifest, TRouterSchema>,
   matches: RouteMatch[],
-): Promise<HeadConfig> {
+): Promise<RouteHeadResponsePayload & { routeHeads: RouteHeadEntry[] }> {
   const resolvedHeadByRoute = new Map<string, HeadConfig>();
+  const routeHeads: RouteHeadEntry[] = [];
+  let staleTime: number | undefined;
 
   for (const match of matches) {
     if (!match.route.serverHead) {
@@ -378,12 +436,124 @@ async function resolveMatchedHead<TRouteManifest extends AnyRoute, TRouterSchema
 
     const result = await executeHeadTag(request, headTags, match.route.fullPath, match.params, match.search);
     resolvedHeadByRoute.set(match.route.fullPath, result.head);
+    routeHeads.push({
+      routeId: match.route.fullPath,
+      head: result.head,
+      staleTime: result.staleTime,
+    });
+
+    if (result.staleTime !== undefined) {
+      staleTime = staleTime === undefined ? result.staleTime : Math.min(staleTime, result.staleTime);
+    }
   }
 
-  return resolveHeadConfig(matches, resolvedHeadByRoute);
+  return {
+    head: resolveHeadConfig(matches, resolvedHeadByRoute),
+    routeHeads,
+    staleTime,
+  };
 }
 
-export async function handleHeadTagRequest<TRouteManifest extends AnyRoute, TRouterSchema extends RouterSchemaShape>(
+function createDocumentHeadRequest(sourceRequest: Request, href: string): Request {
+  const requestUrl = new URL(sourceRequest.url);
+  const targetUrl = new URL(href, requestUrl);
+
+  return new Request(targetUrl.toString(), {
+    method: 'GET',
+    headers: sourceRequest.headers,
+  });
+}
+
+async function handleDocumentHeadRequest<TRouteManifest extends AnyRoute, TRouterSchema extends RouterSchemaShape>(
+  request: Request,
+  options: HandleHeadTagRequestOptions<TRouteManifest, TRouterSchema>,
+  href: string,
+): Promise<HandleRequestResult> {
+  const documentRequest = createDocumentHeadRequest(request, href);
+  const resolvedDocumentRequest = resolveDocumentRequest(documentRequest, options.basePath);
+
+  if (resolvedDocumentRequest === null) {
+    return {
+      matched: true,
+      response: jsonResponse({ message: 'Not Found' }, {
+        status: 404,
+        headers: createHeadResponseHeaders('document'),
+      }),
+    };
+  }
+
+  try {
+    const matches = buildMatches(options.headTags.routeManifest, resolvedDocumentRequest.location);
+
+    if (matches.length === 0) {
+      return {
+        matched: true,
+        response: jsonResponse({ message: 'Not Found' }, {
+          status: 404,
+          headers: createHeadResponseHeaders('document'),
+        }),
+      };
+    }
+
+    const { head, routeHeads, staleTime } = await resolveMatchedHead(documentRequest, options.headTags, matches);
+
+    return {
+      matched: true,
+      response: jsonResponse({
+        href: resolvedDocumentRequest.location.href,
+        head,
+        routeHeads,
+        staleTime,
+        richieRouterHead: createRichieRouterHead(resolvedDocumentRequest.location.href, head, routeHeads),
+      } satisfies DocumentHeadResponsePayload, {
+        headers: createHeadResponseHeaders('document', staleTime),
+      }),
+    };
+  } catch (error) {
+    if (isRedirect(error)) {
+      const redirectPath = prependBasePathToPathname(
+        buildPath(error.options.to, error.options.params ?? {}),
+        resolvedDocumentRequest.basePath,
+      );
+      const redirectSearch = defaultStringifySearch(
+        error.options.search === true ? {} : error.options.search ?? {},
+      );
+      const redirectHash = error.options.hash ? `#${error.options.hash.replace(/^#/, '')}` : '';
+      const redirectUrl = `${redirectPath}${redirectSearch}${redirectHash}`;
+
+      return {
+        matched: true,
+        response: new Response(null, {
+          status: error.options.replace ? 307 : 302,
+          headers: createHeadResponseHeaders('document', undefined, {
+            location: redirectUrl,
+          }),
+        }),
+      };
+    }
+
+    if (error instanceof Response) {
+      return {
+        matched: true,
+        response: withResponseHeaders(error, createHeadResponseHeaders('document')),
+      };
+    }
+
+    if (isNotFound(error)) {
+      return {
+        matched: true,
+        response: jsonResponse({ message: 'Not Found' }, {
+          status: 404,
+          headers: createHeadResponseHeaders('document'),
+        }),
+      };
+    }
+
+    throw error;
+  }
+}
+
+export async function handleHeadRequest<TRouteManifest extends AnyRoute, TRouterSchema extends RouterSchemaShape>(
   request: Request,
   options: HandleHeadTagRequestOptions<TRouteManifest, TRouterSchema>,
 ): Promise<HandleRequestResult> {
@@ -398,11 +568,22 @@ export async function handleHeadTagRequest<TRouteManifest extends AnyRoute, TRou
     };
   }
 
+  const href = url.searchParams.get('href');
+  if (href !== null) {
+    return await handleDocumentHeadRequest(request, {
+      ...options,
+      basePath,
+    }, href);
+  }
+
   const routeId = url.searchParams.get('routeId');
   if (!routeId) {
     return {
       matched: true,
-      response: jsonResponse({ message: 'Missing routeId' }, { status: 400 }),
+      response: jsonResponse({ message: 'Missing routeId' }, {
+        status: 400,
+        headers: createHeadResponseHeaders('route'),
+      }),
     };
   }
 
@@ -413,25 +594,37 @@ export async function handleHeadTagRequest<TRouteManifest extends AnyRoute, TRou
     const result = await executeHeadTag(request, options.headTags, routeId, params, search);
     return {
       matched: true,
-      response: jsonResponse(result),
+      response: jsonResponse(result satisfies RouteHeadResponsePayload, {
+        headers: createHeadResponseHeaders('route', result.staleTime),
+      }),
     };
   } catch (error) {
     if (error instanceof Response) {
       return {
         matched: true,
-        response: error,
+        response: withResponseHeaders(error, createHeadResponseHeaders('route')),
       };
     }
 
     if (isNotFound(error)) {
       return {
         matched: true,
-        response: jsonResponse({ message: 'Not Found' }, { status: 404 }),
+        response: jsonResponse({ message: 'Not Found' }, {
+          status: 404,
+          headers: createHeadResponseHeaders('route'),
+        }),
       };
     }
 
     throw error;
   }
+}
+
+export async function handleHeadTagRequest<TRouteManifest extends AnyRoute, TRouterSchema extends RouterSchemaShape>(
+  request: Request,
+  options: HandleHeadTagRequestOptions<TRouteManifest, TRouterSchema>,
+): Promise<HandleRequestResult> {
+  return await handleHeadRequest(request, options);
 }
 
 export async function handleSpaRequest(
@@ -481,11 +674,8 @@ export async function handleRequest<TRouteManifest extends AnyRoute, TRouterSche
   }
 
   try {
-    const head = await resolveMatchedHead(request, options.headTags, matches);
-    const headHtml = serializeHeadConfig(head, {
-      managedAttribute: MANAGED_HEAD_ATTRIBUTE,
-    });
-    const richieRouterHead = `${headHtml}${createHeadSnapshotScript(documentRequest.location.href, head)}`;
+    const { head, routeHeads } = await resolveMatchedHead(request, options.headTags, matches);
+    const richieRouterHead = createRichieRouterHead(documentRequest.location.href, head, routeHeads);
     return await renderDocumentResponse(request, options.html, richieRouterHead, head, {
       headers: options.headers,
     });

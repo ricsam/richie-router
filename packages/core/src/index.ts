@@ -100,68 +100,113 @@ export type ResolveAllParams<TPath extends string> = Simplify<{
   [TKey in ParsePathParams<TPath>]: string;
 }>;
 
-export interface HeadTagTitle {
-  title: string;
+export type HeadElementAttributeValue = string | boolean;
+
+export type HeadElementAttributes = Record<string, HeadElementAttributeValue | undefined>;
+
+export interface HeadTitleTag {
+  tag: 'title';
+  children: string;
+  key?: string;
 }
 
-export interface HeadTagName {
+export interface HeadMetaCharsetTag {
+  tag: 'meta';
+  charset: string;
+  key?: string;
+}
+
+export interface HeadMetaNameTag {
+  tag: 'meta';
   name: string;
   content: string;
+  key?: string;
 }
 
-export interface HeadTagProperty {
+export interface HeadMetaPropertyTag {
+  tag: 'meta';
   property: string;
   content: string;
+  key?: string;
 }
 
-export interface HeadTagHttpEquiv {
+export interface HeadMetaHttpEquivTag {
+  tag: 'meta';
   httpEquiv: string;
   content: string;
+  key?: string;
 }
 
-export interface HeadTagCharset {
-  charset: string;
-}
-
-export type HeadTag =
-  | HeadTagTitle
-  | HeadTagName
-  | HeadTagProperty
-  | HeadTagHttpEquiv
-  | HeadTagCharset;
+export type HeadMetaTag =
+  | HeadMetaCharsetTag
+  | HeadMetaNameTag
+  | HeadMetaPropertyTag
+  | HeadMetaHttpEquivTag;
 
 export interface HeadLinkTag {
+  tag: 'link';
   rel: string;
   href: string;
   type?: string;
   media?: string;
   sizes?: string;
   crossorigin?: string;
+  key?: string;
 }
 
 export interface HeadStyleTag {
+  tag: 'style';
   children: string;
   media?: string;
+  key?: string;
 }
 
 export interface HeadScriptTag {
+  tag: 'script';
   src?: string;
   children?: string;
   type?: string;
   async?: boolean;
   defer?: boolean;
+  key?: string;
 }
 
-export interface HeadConfig {
-  meta?: HeadTag[];
-  links?: HeadLinkTag[];
-  styles?: HeadStyleTag[];
-  scripts?: HeadScriptTag[];
+export interface HeadBaseTag {
+  tag: 'base';
+  href: string;
+  target?: string;
+  key?: string;
+}
+
+export interface HeadCustomElementTag {
+  tag: 'custom';
+  name: string;
+  attrs?: HeadElementAttributes;
+  children?: string;
+  key?: string;
+}
+
+export type HeadElementTag =
+  | HeadTitleTag
+  | HeadMetaTag
+  | HeadLinkTag
+  | HeadStyleTag
+  | HeadScriptTag
+  | HeadBaseTag
+  | HeadCustomElementTag;
+
+export type HeadConfig = HeadElementTag[];
+
+export interface RouteHeadEntry {
+  routeId: string;
+  head: HeadConfig;
+  staleTime?: number;
 }
 
 export interface DehydratedHeadState {
   href: string;
   head: HeadConfig;
+  routeHeads?: RouteHeadEntry[];
 }
 
 export interface ParsedLocation<TSearch = Record<string, unknown>> {
@@ -638,53 +683,151 @@ function renderAttributes(attributes: Record<string, string | boolean | undefine
     .join(' ');
 }
 
-export function mergeHeadConfigs(heads: HeadConfig[]): HeadConfig {
-  const titles: HeadTagTitle[] = [];
-  const metaByKey = new Map<string, HeadTag>();
-  const linksByKey = new Map<string, HeadLinkTag>();
-  const styles: HeadStyleTag[] = [];
-  const scripts: HeadScriptTag[] = [];
+function renderHeadElementName(element: HeadElementTag): string {
+  return element.tag === 'custom' ? element.name : element.tag;
+}
 
-  for (const head of heads) {
-    for (const meta of head.meta ?? []) {
-      if ('title' in meta) {
-        titles.push(meta);
-        continue;
+function isVoidHeadElement(element: HeadElementTag): boolean {
+  return element.tag === 'meta' || element.tag === 'link' || element.tag === 'base';
+}
+
+function resolveHeadElementAttributes(element: HeadElementTag): HeadElementAttributes {
+  switch (element.tag) {
+    case 'title':
+      return {};
+    case 'meta':
+      if ('charset' in element) {
+        return { charset: element.charset };
       }
 
-      if ('charset' in meta) {
-        metaByKey.set('charset', meta);
-        continue;
+      if ('name' in element) {
+        return { name: element.name, content: element.content };
       }
 
-      if ('name' in meta) {
-        metaByKey.set(`name:${meta.name}`, meta);
-        continue;
+      if ('property' in element) {
+        return { property: element.property, content: element.content };
       }
 
-      if ('property' in meta) {
-        metaByKey.set(`property:${meta.property}`, meta);
-        continue;
-      }
+      return { 'http-equiv': element.httpEquiv, content: element.content };
+    case 'link':
+      return {
+        rel: element.rel,
+        href: element.href,
+        type: element.type,
+        media: element.media,
+        sizes: element.sizes,
+        crossorigin: element.crossorigin,
+      };
+    case 'style':
+      return {
+        media: element.media,
+      };
+    case 'script':
+      return {
+        src: element.src,
+        type: element.type,
+        async: element.async,
+        defer: element.defer,
+      };
+    case 'base':
+      return {
+        href: element.href,
+        target: element.target,
+      };
+    case 'custom':
+      return element.attrs ?? {};
+  }
+}
 
-      metaByKey.set(`httpEquiv:${meta.httpEquiv}`, meta);
-    }
-
-    for (const link of head.links ?? []) {
-      linksByKey.set(`${link.rel}:${link.href}`, link);
-    }
-
-    styles.push(...(head.styles ?? []));
-    scripts.push(...(head.scripts ?? []));
+function resolveHeadElementChildren(element: HeadElementTag): string | undefined {
+  if (element.tag === 'meta' || element.tag === 'link' || element.tag === 'base') {
+    return undefined;
   }
 
-  const title = titles.at(-1);
-  return {
-    meta: [...(title ? [title] : []), ...metaByKey.values()],
-    links: [...linksByKey.values()],
-    styles,
-    scripts,
-  };
+  return element.children;
+}
+
+function renderHeadElementTag(
+  element: HeadElementTag,
+  options?: {
+    managedAttribute?: string;
+  },
+): string {
+  const managedAttributes = options?.managedAttribute
+    ? {
+        [options.managedAttribute]: 'true',
+      }
+    : {};
+  const tagName = renderHeadElementName(element);
+  const attributes = renderAttributes({
+    ...resolveHeadElementAttributes(element),
+    ...managedAttributes,
+  });
+  const openTag = `<${tagName}${attributes ? ` ${attributes}` : ''}>`;
+
+  if (isVoidHeadElement(element)) {
+    return openTag;
+  }
+
+  const children = resolveHeadElementChildren(element);
+  const renderedChildren = element.tag === 'title' ? escapeHtml(children ?? '') : (children ?? '');
+  return `${openTag}${renderedChildren}</${tagName}>`;
+}
+
+function getHeadElementIdentity(element: HeadElementTag): string | null {
+  if (element.key) {
+    return `key:${element.key}`;
+  }
+
+  switch (element.tag) {
+    case 'title':
+      return 'title';
+    case 'meta':
+      if ('charset' in element) {
+        return 'meta:charset';
+      }
+
+      if ('name' in element) {
+        return `meta:name:${element.name}`;
+      }
+
+      if ('property' in element) {
+        return `meta:property:${element.property}`;
+      }
+
+      return `meta:httpEquiv:${element.httpEquiv}`;
+    case 'link':
+      return `link:${element.rel}:${element.href}`;
+    case 'base':
+      return 'base';
+    case 'style':
+    case 'script':
+    case 'custom':
+      return null;
+  }
+}
+
+export function mergeHeadConfigs(heads: HeadConfig[]): HeadConfig {
+  const elements: Array<HeadElementTag | null> = [];
+  const elementIndexesByIdentity = new Map<string, number>();
+
+  for (const head of heads) {
+    for (const element of head) {
+      const identity = getHeadElementIdentity(element);
+      if (identity !== null) {
+        const previousIndex = elementIndexesByIdentity.get(identity);
+        if (previousIndex !== undefined) {
+          elements[previousIndex] = null;
+        }
+
+        elementIndexesByIdentity.set(identity, elements.length);
+      }
+
+      elements.push(element);
+    }
+  }
+
+  return elements.filter((element): element is HeadElementTag => element !== null);
 }
 
 function resolveInlineHead(match: RouteMatch, matches: RouteMatch[]): HeadConfig | null {
@@ -729,60 +872,7 @@ export function serializeHeadConfig(
     managedAttribute?: string;
   },
 ): string {
-  const managedAttributes = options?.managedAttribute
-    ? {
-        [options.managedAttribute]: 'true',
-      }
-    : {};
-
-  const meta = (head.meta ?? []).map(tag => {
-    if ('title' in tag) {
-      return `<title ${renderAttributes(managedAttributes)}>${escapeHtml(tag.title)}</title>`;
-    }
-
-    if ('charset' in tag) {
-      return `<meta ${renderAttributes({ charset: tag.charset, ...managedAttributes })}>`;
-    }
-
-    if ('name' in tag) {
-      return `<meta ${renderAttributes({ name: tag.name, content: tag.content, ...managedAttributes })}>`;
-    }
-
-    if ('property' in tag) {
-      return `<meta ${renderAttributes({ property: tag.property, content: tag.content, ...managedAttributes })}>`;
-    }
-
-    return `<meta ${renderAttributes({ 'http-equiv': tag.httpEquiv, content: tag.content, ...managedAttributes })}>`;
-  });
-
-  const links = (head.links ?? []).map(link => `<link ${renderAttributes({
-    rel: link.rel,
-    href: link.href,
-    type: link.type,
-    media: link.media,
-    sizes: link.sizes,
-    crossorigin: link.crossorigin,
-    ...managedAttributes,
-  })}>`);
-
-  const styles = (head.styles ?? []).map(style => {
-    const attributes = renderAttributes({ media: style.media, ...managedAttributes });
-    return `<style${attributes ? ` ${attributes}` : ''}>${style.children}</style>`;
-  });
-
-  const scripts = (head.scripts ?? []).map(script => {
-    const attributes = renderAttributes({
-      src: script.src,
-      type: script.type,
-      async: script.async,
-      defer: script.defer,
-      ...managedAttributes,
-    });
-
-    return `<script${attributes ? ` ${attributes}` : ''}>${script.children ?? ''}</script>`;
-  });
-
-  return [...meta, ...links, ...styles, ...scripts].join('');
+  return head.map(element => renderHeadElementTag(element, options)).join('');
 }
 
 export function createParsedLocation<TSearch>(

@@ -2,12 +2,10 @@ import { createFileRoute } from '@richie-router/react';
 
 export const Route = createFileRoute('/_auth/dashboard')({
   component: DashboardPage,
-  head: {
-    meta: [
-      { title: 'Dashboard' },
-      { name: 'description', content: 'A protected route behind a pathless layout.' },
-    ],
-  },
+  head: [
+    { tag: 'title', children: 'Dashboard' },
+    { tag: 'meta', name: 'description', content: 'A protected route behind a pathless layout.' },
+  ],
 });
 
 function DashboardPage() {

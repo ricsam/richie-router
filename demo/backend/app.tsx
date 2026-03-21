@@ -33,12 +33,10 @@ const posts: DemoPost[] = [
 export const headTags = defineHeadTags(routeManifest, routerSchema, {
   __root__: {
     staleTime: 60_000,
-    head: async () => ({
-      meta: [
-        { title: 'Richie Router Demo' },
-        { name: 'description', content: 'A Bun + TypeScript demo for Richie Router server head tags.' },
-      ],
-    }),
+    head: async () => ([
+      { tag: 'title', children: 'Richie Router Demo' },
+      { tag: 'meta', name: 'description', content: 'A Bun + TypeScript demo for Richie Router server head tags.' },
+    ]),
   },
   '/posts/$postId': {
     staleTime: 10_000,
@@ -48,27 +46,24 @@ export const headTags = defineHeadTags(routeManifest, routerSchema, {
         throw new Response('Not Found', { status: 404 });
       }
 
-      return {
-        meta: [
-          { title: `${post.title} | Richie Router Demo` },
-          { name: 'description', content: post.excerpt },
-          { property: 'og:title', content: post.title },
-          { property: 'og:image', content: post.coverImage },
-        ],
-      };
+      return [
+        { tag: 'title', children: `${post.title} | Richie Router Demo` },
+        { tag: 'meta', name: 'description', content: post.excerpt },
+        { tag: 'meta', property: 'og:title', content: post.title },
+        { tag: 'meta', property: 'og:image', content: post.coverImage },
+      ];
     },
   },
   '/search': {
     staleTime: 5_000,
-    head: async ({ search }) => ({
-      meta: [
-        { title: `Search: ${search.query}` },
-        {
-          name: 'description',
-          content: `Search demo page for "${search.query}" with limit ${search.limit}.`,
-        },
-      ],
-    }),
+    head: async ({ search }) => ([
+      { tag: 'title', children: `Search: ${search.query}` },
+      {
+        tag: 'meta',
+        name: 'description',
+        content: `Search demo page for "${search.query}" with limit ${search.limit}.`,
+      },
+    ]),
   },
 });
 

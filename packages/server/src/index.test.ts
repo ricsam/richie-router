@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { defineRouterSchema, redirect, createRouteNode } from '@richie-router/core';
-import { defineHeadTags, handleHeadRequest, handleHeadTagRequest, handleRequest, handleSpaRequest, matchesSpaRequest } from './index';
+import { defineHeadTags, handleHeadRequest, handleHeadTagRequest, handleRequest, handleSpaRequest, matchesSpaPath } from './index';
 
 function createTestArtifacts(options?: {
   redirectAbout?: boolean;
@@ -84,17 +84,17 @@ describe('handleSpaRequest', () => {
   test('exposes a pure SPA matcher for host-side routing decisions', () => {
     const { spaRoutesManifest, routeManifest } = createTestArtifacts();
 
-    expect(matchesSpaRequest(new Request('https://example.com/project/about'), {
+    expect(matchesSpaPath('/project/about', {
       spaRoutesManifest,
       basePath: '/project',
     })).toBe(true);
 
-    expect(matchesSpaRequest(new Request('https://example.com/project/posts/123'), {
+    expect(matchesSpaPath('/project/posts/123', {
       routeManifest,
       basePath: '/project',
     })).toBe(true);
 
-    expect(matchesSpaRequest(new Request('https://example.com/project/api/health'), {
+    expect(matchesSpaPath('/project/api/health', {
       spaRoutesManifest,
       basePath: '/project',
     })).toBe(false);

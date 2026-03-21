@@ -78,20 +78,20 @@ export interface SpaRoutesManifest {
   spaRoutes: string[];
 }
 
-interface BaseMatchSpaRequestOptions {
+interface BaseMatchSpaPathOptions {
   basePath?: string;
 }
 
-export type MatchSpaRequestOptions =
-  | ({ routeManifest: AnyRoute } & BaseMatchSpaRequestOptions)
-  | ({ spaRoutesManifest: SpaRoutesManifest } & BaseMatchSpaRequestOptions);
+export type MatchSpaPathOptions =
+  | ({ routeManifest: AnyRoute } & BaseMatchSpaPathOptions)
+  | ({ spaRoutesManifest: SpaRoutesManifest } & BaseMatchSpaPathOptions);
 
 interface DocumentResponseOptions {
   html: HtmlOptions;
   headers?: HeadersInit;
 }
 
-export type HandleSpaRequestOptions = MatchSpaRequestOptions & DocumentResponseOptions;
+export type HandleSpaRequestOptions = MatchSpaPathOptions & DocumentResponseOptions;
 
 export interface HandleRequestOptions<TRouteManifest extends AnyRoute, TRouterSchema extends RouterSchemaShape> {
   routeManifest: TRouteManifest;
@@ -282,7 +282,14 @@ function resolveDocumentRequest(
   request: Request,
   basePathOption?: string,
 ): { basePath: string; location: ParsedLocation } | null {
-  const url = new URL(request.url);
+  return resolveDocumentPath(request.url, basePathOption);
+}
+
+function resolveDocumentPath(
+  path: string,
+  basePathOption?: string,
+): { basePath: string; location: ParsedLocation } | null {
+  const url = new URL(path, 'http://richie-router.local');
   const basePath = normalizeBasePath(basePathOption);
   const strippedPathname = stripBasePathFromPathname(url.pathname, basePath);
 
@@ -371,7 +378,7 @@ function resolveSpaRoutes(spaRoutesManifest: SpaRoutesManifest): string[] {
   return spaRoutes;
 }
 
-function matchesSpaLocation(options: MatchSpaRequestOptions, location: ParsedLocation): boolean {
+function matchesSpaLocation(options: MatchSpaPathOptions, location: ParsedLocation): boolean {
   if ('routeManifest' in options) {
     return buildMatches(options.routeManifest, location).length > 0;
   }
@@ -379,11 +386,11 @@ function matchesSpaLocation(options: MatchSpaRequestOptions, location: ParsedLoc
   return resolveSpaRoutes(options.spaRoutesManifest).some(route => matchPathname(route, location.pathname) !== null);
 }
 
-export function matchesSpaRequest(
-  request: Request,
-  options: MatchSpaRequestOptions,
+export function matchesSpaPath(
+  path: string,
+  options: MatchSpaPathOptions,
 ): boolean {
-  const documentRequest = resolveDocumentRequest(request, options.basePath);
+  const documentRequest = resolveDocumentPath(path, options.basePath);
   if (documentRequest === null) {
     return false;
   }

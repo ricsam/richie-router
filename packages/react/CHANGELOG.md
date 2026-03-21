@@ -1,5 +1,13 @@
 # @richie-router/react
 
+## 0.1.3
+
+### Patch Changes
+
+- new api
+- Updated dependencies
+  - @richie-router/core@0.1.3
+
 ## 0.1.2
 
 ### Patch Changes

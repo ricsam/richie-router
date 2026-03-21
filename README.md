@@ -277,12 +277,12 @@ createRoot(container).render(<RouterProvider router={router} />);
 
 ## Server Request Handling
 
-`matchesSpaRequest()` is the low-level matcher for deciding whether a request should be handled by your SPA shell. `handleSpaRequest()` builds on that and serves SPA document requests without any server head-tag work. It accepts either a server-safe `routeManifest` or a parsed `spa-routes.gen.json` manifest. `handleHeadRequest()` is the scoped helper for the JSON endpoint used by client head-tag loaders and host-owned HTML shells. `handleHeadTagRequest()` remains as a backwards-compatible alias. `handleRequest()` composes both concerns as a convenience when you want SPA document handling plus server head tags.
+`matchesSpaPath()` is the low-level matcher for deciding whether a path should be handled by your SPA shell. `handleSpaRequest()` builds on that and serves SPA document requests without any server head-tag work. It accepts either a server-safe `routeManifest` or a parsed `spa-routes.gen.json` manifest. `handleHeadRequest()` is the scoped helper for the JSON endpoint used by client head-tag loaders and host-owned HTML shells. `handleHeadTagRequest()` remains as a backwards-compatible alias. `handleRequest()` composes both concerns as a convenience when you want SPA document handling plus server head tags.
 
 ```ts
-import { matchesSpaRequest } from '@richie-router/server';
+import { matchesSpaPath } from '@richie-router/server';
 
-if (matchesSpaRequest(request, {
+if (matchesSpaPath('/project/posts/hello-world', {
   spaRoutesManifest,
   basePath: '/project',
 })) {
@@ -331,7 +331,7 @@ const handled = await handleRequest(request, {
 if (handled.matched) return handled.response;
 ```
 
-`basePath` on `matchesSpaRequest()`, `handleSpaRequest()`, and `handleRequest()` is the SPA document prefix. It strips that prefix before matching backend SPA routes, and `handleRequest()` also prefixes redirect responses with it. `headBasePath` is separate and still refers to the concrete head API endpoint path. If you omit `headBasePath`, both `handleHeadRequest()` and `handleRequest()` default it to `${basePath}/head-api` when `basePath` is set, otherwise `/head-api`.
+`basePath` on `matchesSpaPath()`, `handleSpaRequest()`, and `handleRequest()` is the SPA document prefix. It strips that prefix before matching backend SPA routes, and `handleRequest()` also prefixes redirect responses with it. `headBasePath` is separate and still refers to the concrete head API endpoint path. If you omit `headBasePath`, both `handleHeadRequest()` and `handleRequest()` default it to `${basePath}/head-api` when `basePath` is set, otherwise `/head-api`.
 
 If you call `handleHeadRequest()` directly, pass either `basePath`, the actual `headBasePath`, or both when your head API lives somewhere custom. Route head requests still use `?routeId=...&params=...&search=...`. Host-owned shell requests can instead send `?href=/project/posts/hello-world` to receive `{ href, head, routeHeads, staleTime, richieRouterHead }` for the fully matched document head.
 

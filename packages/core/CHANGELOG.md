@@ -1,5 +1,11 @@
 # @richie-router/core
 
+## 0.1.3
+
+### Patch Changes
+
+- new api
+
 ## 0.1.2
 
 ### Patch Changes

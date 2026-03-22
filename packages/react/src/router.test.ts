@@ -1,5 +1,11 @@
 import { describe, expect, test } from 'bun:test';
+import React from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 import {
+  Link,
+  useMatchRoute,
+  RouterProvider,
+  createLink,
   createFileRoute,
   createMemoryHistory,
   createRootRoute,
@@ -92,7 +98,78 @@ function createNestedServerHeadTree() {
   });
 }
 
+function createLinkTestRouteTree(component: () => unknown) {
+  const rootRoute = createRootRoute({
+    component,
+  });
+  const postRoute = createFileRoute('/post')({
+    component: () => null,
+  });
+  const postsRoute = createFileRoute('/posts')({
+    component: () => null,
+  });
+  const postDetailRoute = createFileRoute('/posts/$postId')({
+    component: () => null,
+  });
+
+  postsRoute._addFileChildren({
+    detail: postDetailRoute,
+  });
+
+  return rootRoute._addFileChildren({
+    post: postRoute,
+    posts: postsRoute,
+  });
+}
+
+function renderLinkMarkup(initialEntry: string, component: () => unknown): string {
+  const history = createMemoryHistory({
+    initialEntries: [initialEntry],
+  });
+  const router = createRouter({
+    routeTree: createLinkTestRouteTree(component),
+    history,
+  });
+
+  return renderToStaticMarkup(React.createElement(RouterProvider, { router: router as any }));
+}
+
 describe('createRouter basePath', () => {
+  test('treats "/" as the root basePath', () => {
+    const history = createMemoryHistory({
+      initialEntries: ['/about?tab=team#bio'],
+    });
+    const router = createRouter({
+      routeTree: createTestRouteTree(),
+      history,
+      basePath: '/',
+    });
+
+    expect(router.state.location.pathname).toBe('/about');
+    expect(router.state.location.href).toBe('/about?tab=team#bio');
+    expect(router.buildHref({ to: '/about' })).toBe('/about');
+  });
+
+  test('normalizes a trailing slash in the basePath', async () => {
+    const history = createMemoryHistory({
+      initialEntries: ['/project/about?tab=team#bio'],
+    });
+    const router = createRouter({
+      routeTree: createTestRouteTree(),
+      history,
+      basePath: '/project/',
+    });
+
+    expect(router.state.location.pathname).toBe('/about');
+    expect(router.buildHref({ to: '/about' })).toBe('/project/about');
+
+    await router.navigate({
+      to: '/about',
+    });
+
+    expect(history.location.href).toBe('/project/about');
+  });
+
   test('strips the basePath from the current history location', () => {
     const history = createMemoryHistory({
       initialEntries: ['/project/about?tab=team#bio'],
@@ -481,5 +558,109 @@ describe('createRouter basePath', () => {
     } finally {
       globalThis.fetch = originalFetch;
     }
+  });
+});
+
+describe('Link active state', () => {
+  test('keeps parent links active on child routes by default', () => {
+    const TestLink = Link as any;
+    const markup = renderLinkMarkup('/posts/alpha', () =>
+      React.createElement(
+        TestLink,
+        { to: '/posts', activeProps: { className: 'active' } },
+        'Posts',
+      ));
+
+    expect(markup).toContain('class="active"');
+  });
+
+  test('supports exact-only active matching', () => {
+    const TestLink = Link as any;
+    const markup = renderLinkMarkup('/posts/alpha', () =>
+      React.createElement(
+        TestLink,
+        {
+          to: '/posts',
+          activeOptions: { exact: true },
+          activeProps: { className: 'active' },
+        },
+        'Posts',
+      ));
+
+    expect(markup).not.toContain('class="active"');
+  });
+
+  test('matches path segments instead of raw string prefixes', () => {
+    const TestLink = Link as any;
+    const markup = renderLinkMarkup('/posts/alpha', () =>
+      React.createElement(
+        TestLink,
+        { to: '/post', activeProps: { className: 'active' } },
+        'Post',
+      ));
+
+    expect(markup).not.toContain('class="active"');
+  });
+
+  test('applies activeOptions in custom links created with createLink', () => {
+    const AppLink = createLink((props: any) => React.createElement('a', props)) as any;
+    const markup = renderLinkMarkup('/posts/alpha', () =>
+      React.createElement(
+        AppLink,
+        {
+          to: '/posts',
+          activeOptions: { exact: true },
+          activeProps: { className: 'active' },
+        },
+        'Posts',
+      ));
+
+    expect(markup).not.toContain('class="active"');
+  });
+});
+
+describe('useMatchRoute', () => {
+  test('returns matched params for exact matches', () => {
+    const markup = renderLinkMarkup('/posts/alpha', () => {
+      const matchRoute = useMatchRoute() as any;
+      const match = matchRoute({ to: '/posts/$postId' });
+      return React.createElement('pre', null, match === false ? 'false' : JSON.stringify(match));
+    });
+
+    expect(markup).toContain('{&quot;postId&quot;:&quot;alpha&quot;}');
+  });
+
+  test('supports fuzzy parent matching', () => {
+    const markup = renderLinkMarkup('/posts/alpha', () => {
+      const matchRoute = useMatchRoute() as any;
+      const match = matchRoute({ to: '/posts', fuzzy: true });
+      return React.createElement('pre', null, match === false ? 'false' : JSON.stringify(match));
+    });
+
+    expect(markup).toContain('{}');
+  });
+
+  test('supports partial param filters', () => {
+    const markup = renderLinkMarkup('/posts/alpha', () => {
+      const matchRoute = useMatchRoute() as any;
+      const match = matchRoute({ to: '/posts/$postId', params: { postId: 'beta' } });
+      return React.createElement('pre', null, match === false ? 'false' : JSON.stringify(match));
+    });
+
+    expect(markup).toContain('false');
+  });
+
+  test('can include search params in the match', () => {
+    const markup = renderLinkMarkup('/posts/alpha?tab=details&count=2', () => {
+      const matchRoute = useMatchRoute() as any;
+      const match = matchRoute({
+        to: '/posts/$postId',
+        includeSearch: true,
+        search: { tab: 'details' },
+      });
+      return React.createElement('pre', null, match === false ? 'false' : JSON.stringify(match));
+    });
+
+    expect(markup).toContain('{&quot;postId&quot;:&quot;alpha&quot;}');
   });
 });

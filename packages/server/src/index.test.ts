@@ -81,6 +81,20 @@ function createTestArtifacts(options?: {
 }
 
 describe('handleSpaRequest', () => {
+  test('treats "/" as the root basePath and trims trailing slashes', () => {
+    const { spaRoutesManifest } = createTestArtifacts();
+
+    expect(matchesSpaPath('/about', {
+      spaRoutesManifest,
+      basePath: '/',
+    })).toBe(true);
+
+    expect(matchesSpaPath('/project/about', {
+      spaRoutesManifest,
+      basePath: '/project/',
+    })).toBe(true);
+  });
+
   test('exposes a pure SPA matcher for host-side routing decisions', () => {
     const { spaRoutesManifest, routeManifest } = createTestArtifacts();
 

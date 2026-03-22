@@ -389,7 +389,7 @@ const handled = await handleRequest(request, {
 if (handled.matched) return handled.response;
 ```
 
-`basePath` on `matchesSpaPath()`, `handleSpaRequest()`, and `handleRequest()` is the SPA document prefix. It strips that prefix before matching backend SPA routes, and `handleRequest()` also prefixes redirect responses with it. `headBasePath` is separate and still refers to the concrete head API endpoint path. If you omit `headBasePath`, both `handleHeadRequest()` and `handleRequest()` default it to `${basePath}/head-api` when `basePath` is set, otherwise `/head-api`.
+`basePath` on `matchesSpaPath()`, `handleSpaRequest()`, and `handleRequest()` is the SPA document prefix. It strips that prefix before matching backend SPA routes, and `handleRequest()` also prefixes redirect responses with it. Richie Router normalizes `"/"` to the root app and trims a trailing slash for you, so `"/project/"` and `"/project"` behave the same. `headBasePath` is separate and still refers to the concrete head API endpoint path. If you omit `headBasePath`, both `handleHeadRequest()` and `handleRequest()` default it to `${basePath}/head-api` when `basePath` is set, otherwise `/head-api`.
 
 If you call `handleHeadRequest()` directly, pass either `basePath`, the actual `headBasePath`, or both when your head API lives somewhere custom. Route head requests still use `?routeId=...&params=...&search=...`. Host-owned shell requests can instead send `?href=/project/posts/hello-world` to receive `{ href, head, routeHeads, staleTime, richieRouterHead }` for the fully matched document head.
 
@@ -544,6 +544,7 @@ Public hooks:
 - `useParams({ from })`
 - `useSearch({ from })`
 - `useNavigate()`
+- `useMatchRoute()`
 - `useLocation()`
 - `useRouterState({ select })`
 - `useBlocker(...)`

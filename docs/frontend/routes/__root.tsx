@@ -47,7 +47,9 @@ function RootLayout() {
           <p style={{ margin: '0.25rem 0 0', opacity: 0.7 }}>Guides and reference for the Bun + TypeScript router.</p>
         </div>
         <nav style={{ display: 'flex', gap: '1rem', alignItems: 'center', flexWrap: 'wrap' }}>
-          <NavLink to="/">Home</NavLink>
+          <NavLink to="/" activeOptions={{ exact: true }}>
+            Home
+          </NavLink>
           <NavLink to="/search" search={{ q: '' }}>
             Search
           </NavLink>

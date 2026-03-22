@@ -44,7 +44,9 @@ function RootLayout() {
           </p>
         </div>
         <nav style={{ display: 'flex', gap: '1rem', alignItems: 'center', flexWrap: 'wrap' }}>
-          <NavLink to="/">Home</NavLink>
+          <NavLink to="/" activeOptions={{ exact: true }}>
+            Home
+          </NavLink>
           <NavLink to="/about">About</NavLink>
           <NavLink to="/posts">Posts</NavLink>
           <NavLink to="/search" search={{ query: 'router', limit: 2 }}>

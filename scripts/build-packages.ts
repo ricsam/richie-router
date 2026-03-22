@@ -127,6 +127,9 @@ async function buildSourceFile(
     external: ['*'],
     target: 'node',
     naming: `[name].${extension}`,
+    define: {
+      'process.env.NODE_ENV': JSON.stringify('production'),
+    },
     plugins: [
       {
         name: 'rewrite-relative-import-extensions',

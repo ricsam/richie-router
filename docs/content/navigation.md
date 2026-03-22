@@ -51,3 +51,18 @@ type NavigateOptions = {
 ```
 
 Programmatic and declarative navigation use the same route definitions, so the types stay consistent.
+
+## Match routes imperatively
+
+`useMatchRoute()` mirrors the common TanStack Router pattern for checking whether a route matches the current location.
+
+```tsx
+import { useMatchRoute } from '@richie-router/react';
+
+function BranchNav() {
+  const matchRoute = useMatchRoute();
+  const isPostsSection = Boolean(matchRoute({ to: '/posts', fuzzy: true }));
+
+  return <span>{isPostsSection ? 'Inside posts' : 'Outside posts'}</span>;
+}
+```

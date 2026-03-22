@@ -10,6 +10,7 @@ import {
   defaultStringifySearch,
   isNotFound,
   isRedirect,
+  matchPathname,
   matchRouteTree,
   normalizeRouteIdRuntime,
   notFound,
@@ -112,7 +113,9 @@ type SearchInput<TSearch> = TSearch | ((previous: TSearch) => TSearch) | true;
 
 type ParamsOption<TParams> = keyof TParams extends never
   ? { params?: never }
-  : { params: ParamsInput<TParams> };
+  : string extends keyof TParams
+    ? { params?: ParamsInput<TParams> }
+    : { params: ParamsInput<TParams> };
 
 type ClientHeadOption<TPath extends string, TSearch> =
   | HeadConfig
@@ -186,8 +189,28 @@ export type NavigateOptions<TTo extends RoutePaths = RoutePaths> = {
 
 export type NavigateFn = <TTo extends RoutePaths>(options: NavigateOptions<TTo>) => Promise<void>;
 
+export interface MatchRouteOptions {
+  fuzzy?: boolean;
+  includeSearch?: boolean;
+}
+
+export type UseMatchRouteOptions<TTo extends RoutePaths = RoutePaths> = {
+  to: TTo;
+  params?: Partial<ParamsForTo<TTo>>;
+  search?: Record<string, unknown>;
+} & MatchRouteOptions;
+
+export type MatchRouteFn = <TTo extends RoutePaths>(
+  options: UseMatchRouteOptions<TTo>,
+) => false | ParamsForTo<TTo>;
+
+export interface ActiveOptions {
+  exact?: boolean;
+}
+
 export type LinkOwnProps<TTo extends RoutePaths> = NavigateOptions<TTo> & {
   preload?: 'intent' | 'render' | false;
+  activeOptions?: ActiveOptions;
   activeProps?: React.AnchorHTMLAttributes<HTMLAnchorElement>;
   children?: React.ReactNode | ((ctx: { isActive: boolean }) => React.ReactNode);
 };
@@ -319,6 +342,27 @@ function prependBasePathToHref(href: string, basePath?: string): string {
 
 function routeHasRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
+}
+
+function isDeepInclusiveMatch(expected: unknown, actual: unknown): boolean {
+  if (Array.isArray(expected)) {
+    if (!Array.isArray(actual) || expected.length !== actual.length) {
+      return false;
+    }
+
+    return expected.every((value, index) => isDeepInclusiveMatch(value, actual[index]));
+  }
+
+  if (routeHasRecord(expected)) {
+    if (!routeHasRecord(actual)) {
+      return false;
+    }
+
+    return Object.entries(expected).every(([key, value]) =>
+      key in actual && isDeepInclusiveMatch(value, actual[key]));
+  }
+
+  return Object.is(expected, actual);
 }
 
 function routeHasInlineHead(route: AnyRoute): boolean {
@@ -1278,7 +1322,7 @@ function renderError(
   return <pre>{error instanceof Error ? error.message : 'Unknown routing error'}</pre>;
 }
 
-export function RouterProvider({ router }: { router: RegisteredRouter }): React.ReactElement {
+export function RouterProvider<TRouteTree extends AnyRoute>({ router }: { router: Router<TRouteTree> }): React.ReactElement {
   const snapshot = React.useSyncExternalStore(router.subscribe, router.getSnapshot, router.getSnapshot);
 
   React.useEffect(() => {
@@ -1336,6 +1380,37 @@ export function useNavigate(): NavigateFn {
   return React.useCallback(async options => {
     await router.navigate(options);
   }, [router]);
+}
+
+export function useMatchRoute(): MatchRouteFn {
+  const location = useLocation();
+
+  return React.useCallback((options => {
+    const matched = matchPathname(options.to, location.pathname, {
+      partial: options.fuzzy === true,
+    });
+
+    if (!matched) {
+      return false;
+    }
+
+    if (options.params) {
+      for (const [key, value] of Object.entries(options.params)) {
+        if (value !== undefined && matched.params[key] !== value) {
+          return false;
+        }
+      }
+    }
+
+    if (options.includeSearch) {
+      const expectedSearch = options.search ?? {};
+      if (!isDeepInclusiveMatch(expectedSearch, location.search)) {
+        return false;
+      }
+    }
+
+    return matched.params as ParamsForTo<typeof options.to>;
+  }) as MatchRouteFn, [location.pathname, location.search]);
 }
 
 export function useLocation(): ParsedLocation {
@@ -1406,12 +1481,14 @@ export function useElementScrollRestoration(): { ref: React.RefCallback<HTMLElem
   };
 }
 
-function useResolvedLink<TTo extends RoutePaths>(props: NavigateOptions<TTo>) {
+function useResolvedLink<TTo extends RoutePaths>(props: NavigateOptions<TTo>, activeOptions?: ActiveOptions) {
   const router = useRouterContext();
   const href = router.buildHref(props);
   const location = useLocation();
-  const pathOnly = stripBasePathFromHref(href, router.options.basePath).split(/[?#]/u)[0] ?? href;
-  const isActive = pathOnly === location.pathname;
+  const targetPathname = stripBasePathFromHref(href, router.options.basePath).split(/[?#]/u)[0] ?? href;
+  const isActive = matchPathname(targetPathname, location.pathname, {
+    partial: activeOptions?.exact !== true,
+  }) !== null;
   return { href, isActive, router };
 }
 
@@ -1431,6 +1508,7 @@ const LinkComponent = React.forwardRef(function LinkInner<TTo extends RoutePaths
     state,
     mask,
     ignoreBlocker,
+    activeOptions,
     activeProps,
     children,
     onClick,
@@ -1451,7 +1529,7 @@ const LinkComponent = React.forwardRef(function LinkInner<TTo extends RoutePaths
     mask,
     ignoreBlocker,
   } as unknown as NavigateOptions<TTo>;
-  const { href, isActive, router } = useResolvedLink(navigation);
+  const { href, isActive, router } = useResolvedLink(navigation, activeOptions);
   const preloadMode = preload ?? router.options.defaultPreload;
   const preloadDelay = router.options.defaultPreloadDelay ?? 50;
   const preloadTimeout = React.useRef<number | null>(null);
@@ -1548,6 +1626,7 @@ export function createLink<TProps extends { href?: string; children?: React.Reac
       state,
       mask,
       ignoreBlocker,
+      activeOptions,
       activeProps,
       children,
       preload,
@@ -1565,7 +1644,7 @@ export function createLink<TProps extends { href?: string; children?: React.Reac
       mask,
       ignoreBlocker,
     } as unknown as NavigateOptions<TTo>;
-    const { href, isActive, router } = useResolvedLink(navigation);
+    const { href, isActive, router } = useResolvedLink(navigation, activeOptions);
     const renderedChildren = typeof children === 'function' ? children({ isActive }) : children;
 
     React.useEffect(() => {

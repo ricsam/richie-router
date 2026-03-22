@@ -373,35 +373,44 @@ function collectRegisteredSpaRoutes(
 }
 
 function buildChildAssemblies(
-  rootRoute: ScannedRouteFile,
   routesById: Map<string, ScannedRouteFile>,
   childrenByParent: Map<string, ScannedRouteFile[]>,
   options: GenerateRouteTreeOptions,
 ): string[] {
-  return [...childrenByParent.entries()]
-    .map(([parentId, children]) => {
-      if (parentId === '__root__') {
-        return '';
-      }
+  const assemblies: string[] = [];
 
-      const parent = parentId === '__root__' ? rootRoute : routesById.get(parentId);
-      if (!parent || children.length === 0) {
-        return '';
-      }
+  function visit(parentId: string): void {
+    for (const child of childrenByParent.get(parentId) ?? []) {
+      visit(child.id);
+    }
 
-      const childObjectName = `${parent.variableName}Children`;
-      const childMembers = children.map(child => {
-        const treeName = childrenByParent.has(child.id) ? child.withChildrenName : child.variableName;
-        return `  ${treeName},`;
-      });
-      const parentTreeName = parent.withChildrenName;
+    if (parentId === '__root__') {
+      return;
+    }
 
-      return [
+    const parent = routesById.get(parentId);
+    const children = childrenByParent.get(parentId) ?? [];
+    if (!parent || children.length === 0) {
+      return;
+    }
+
+    const childObjectName = `${parent.variableName}Children`;
+    const childMembers = children.map(child => {
+      const treeName = childrenByParent.has(child.id) ? child.withChildrenName : child.variableName;
+      return `  ${treeName},`;
+    });
+    const parentTreeName = parent.withChildrenName;
+
+    assemblies.push(
+      [
         formatStatement(`const ${childObjectName} = {\n${childMembers.join('\n')}\n}`, options),
         formatStatement(`const ${parentTreeName} = ${parent.variableName}._addFileChildren(${childObjectName})`, options),
-      ].join('\n');
-    })
-    .filter(Boolean);
+      ].join('\n'),
+    );
+  }
+
+  visit('__root__');
+  return assemblies;
 }
 
 function buildRouteMetadataAccess(routeId: string, quoteStyle: 'single' | 'double'): string {
@@ -462,7 +471,7 @@ function buildGeneratedClientFile(routes: ScannedRouteFile[], options: GenerateR
   const ids = ['__root__', ...nonRootRoutes.map(route => route.id)];
   const fullPaths = [...new Set(nonRootRoutes.map(route => route.to))];
   const toPaths = [...publicRouteMap.keys()];
-  const childAssemblies = buildChildAssemblies(rootRoute, routesById, childrenByParent, options);
+  const childAssemblies = buildChildAssemblies(routesById, childrenByParent, options);
   const fileRouteIdsUnion = ids.map(value => quote(value, quoteStyle)).join(' | ');
 
   const rootChildrenName = `${rootRoute.variableName}Children`;
@@ -572,7 +581,7 @@ function buildGeneratedManifestFile(routes: ScannedRouteFile[], options: Generat
     }),
   ];
 
-  const childAssemblies = buildChildAssemblies(rootRoute, routesById, childrenByParent, options);
+  const childAssemblies = buildChildAssemblies(routesById, childrenByParent, options);
   const rootChildrenName = `${rootRoute.variableName}Children`;
   const rootChildren = (childrenByParent.get('__root__') ?? []).map(child => {
     const treeName = childrenByParent.has(child.id) ? child.withChildrenName : child.variableName;

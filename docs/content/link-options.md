@@ -33,3 +33,19 @@ const postLink = linkOptions({
 ```
 
 If the route shape changes, TypeScript will point at the reusable object instead of letting drift spread across the app.
+
+## Active matching
+
+Links are active on matching child paths by default, so a link to `/posts` stays active on `/posts/alpha`.
+
+```tsx
+<Link to="/posts">Posts</Link>
+```
+
+Use `activeOptions={{ exact: true }}` when a link should only be active on an exact pathname match, such as a home link.
+
+```tsx
+<Link to="/" activeOptions={{ exact: true }}>
+  Home
+</Link>
+```

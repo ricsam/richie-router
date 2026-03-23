@@ -286,7 +286,6 @@ export function startDocsServer(options?: { port?: number }) {
 
       const handledHeadTagRequest = await handleHeadTagRequest(request, {
         headTags,
-        headBasePath: '/head-api',
       });
 
       if (handledHeadTagRequest.matched) {
@@ -301,7 +300,6 @@ export function startDocsServer(options?: { port?: number }) {
       const handled = await handleRequest(request, {
         routeManifest,
         headTags,
-        headBasePath: '/head-api',
         html: {
           template: htmlTemplate,
         },

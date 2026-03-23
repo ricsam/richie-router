@@ -11,6 +11,7 @@ afterEach(async () => {
 });
 
 test("generateRouteTree emits nested child assemblies before parents", async () => {
+  const coreModulePath = new URL("../../core/src/index.ts", import.meta.url).pathname;
   const rootDir = await mkdtemp(path.join(tmpdir(), "richie-router-tooling-"));
   tempDirectories.push(rootDir);
 
@@ -28,24 +29,41 @@ test("generateRouteTree emits nested child assemblies before parents", async () 
     writeFile(path.join(routesDir, "b", "$projectId", "$branchName", "schedules", "$scheduleId", "index.tsx"), routeFileContent),
     writeFile(
       path.join(rootDir, "router-schema.ts"),
-      "export const routerSchema = {};\nexport type RouterSchema = typeof routerSchema;\n",
+      [
+        `import { defineRouterSchema } from ${JSON.stringify(coreModulePath)};`,
+        "",
+        "export const routerSchema = defineRouterSchema({}, {",
+        "  passthrough: ['/api/$'],",
+        "  headBasePath: '/meta',",
+        "});",
+        "export type RouterSchema = typeof routerSchema;",
+        "",
+      ].join("\n"),
     ),
   ]);
 
   const routeTreePath = path.join(rootDir, "route-tree.gen.ts");
   const routeManifestPath = path.join(rootDir, "route-manifest.gen.ts");
+  const routesJsonPath = path.join(rootDir, "spa-routes.gen.json");
 
   await generateRouteTree({
     routesDir,
     routerSchema: path.join(rootDir, "router-schema.ts"),
     output: routeTreePath,
     manifestOutput: routeManifestPath,
+    jsonOutput: routesJsonPath,
     quoteStyle: "double",
     semicolons: true,
   });
 
   const routeTreeContent = await readFile(routeTreePath, "utf8");
   const routeManifestContent = await readFile(routeManifestPath, "utf8");
+  const routesJsonContent = JSON.parse(await readFile(routesJsonPath, "utf8")) as {
+    hostedRouting?: {
+      headBasePath: string;
+      passthrough: string[];
+    };
+  };
 
   const childAssembly = "const BSplatprojectIdSplatbranchNameSchedulesSplatscheduleIdRouteRouteWithChildren =";
   const parentAssembly = "const BSplatprojectIdSplatbranchNameSchedulesRouteRouteChildren =";
@@ -57,4 +75,10 @@ test("generateRouteTree emits nested child assemblies before parents", async () 
   expect(routeManifestContent.indexOf(childAssembly)).toBeGreaterThan(-1);
   expect(routeManifestContent.indexOf(parentAssembly)).toBeGreaterThan(-1);
   expect(routeManifestContent.indexOf(childAssembly)).toBeLessThan(routeManifestContent.indexOf(parentAssembly));
+  expect(routeTreeContent).toContain("getRouterSchemaHostedRouting(routerSchema)");
+  expect(routeManifestContent).toContain("getRouterSchemaHostedRouting(routerSchema)");
+  expect(routesJsonContent.hostedRouting).toEqual({
+    headBasePath: "/meta",
+    passthrough: ["/meta", "/api/$"],
+  });
 });

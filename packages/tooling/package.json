@@ -1,6 +1,6 @@
 {
   "name": "@richie-router/tooling",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "Route generation and build-tool integrations for Richie Router",
   "type": "module",
   "sideEffects": false,

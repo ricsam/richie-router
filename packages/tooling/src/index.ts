@@ -1,6 +1,8 @@
 import { readdir, writeFile } from 'node:fs/promises';
 import { watch as fsWatch } from 'node:fs';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { getRouterSchemaHostedRouting, type AnyRouterSchema, type HostedRoutingConfig } from '@richie-router/core';
 
 export interface GenerateRouteTreeOptions {
   routesDir: string;
@@ -29,6 +31,20 @@ interface RouteFileRecord {
   parentId: string | null;
 }
 type ScannedRouteFile = RouteFileRecord;
+
+async function loadRouterSchema(routerSchemaPath: string): Promise<AnyRouterSchema> {
+  const schemaUrl = new URL(pathToFileURL(path.resolve(routerSchemaPath)).href);
+  schemaUrl.searchParams.set('t', `${Date.now()}`);
+
+  const module = await import(schemaUrl.toString());
+  const routerSchema = module.routerSchema as AnyRouterSchema | undefined;
+
+  if (!routerSchema || typeof routerSchema !== 'object') {
+    throw new Error(`Router schema module "${routerSchemaPath}" did not export a valid "routerSchema" object.`);
+  }
+
+  return routerSchema;
+}
 
 function quote(value: string, quoteStyle: 'single' | 'double'): string {
   const marker = quoteStyle === 'single' ? "'" : '"';
@@ -414,7 +430,7 @@ function buildChildAssemblies(
 }
 
 function buildRouteMetadataAccess(routeId: string, quoteStyle: 'single' | 'double'): string {
-  return `._setSearchSchema((routerSchema as any)[${quote(routeId, quoteStyle)}]?.searchSchema as never)._setServerHead((routerSchema as any)[${quote(routeId, quoteStyle)}]?.serverHead)`;
+  return `._setSearchSchema(getRouteSchemaEntry(routerSchema, ${quote(routeId, quoteStyle)})?.searchSchema as never)._setServerHead(getRouteSchemaEntry(routerSchema, ${quote(routeId, quoteStyle)})?.serverHead)`;
 }
 
 function buildGeneratedClientFile(routes: ScannedRouteFile[], options: GenerateRouteTreeOptions): string {
@@ -491,12 +507,13 @@ function buildGeneratedClientFile(routes: ScannedRouteFile[], options: GenerateR
     '/* eslint-disable */',
     formatStatement(`import { routerSchema } from ${quote(schemaImport, quoteStyle)}`, options),
     formatStatement(`import type { RouterSchema } from ${quote(schemaImport, quoteStyle)}`, options),
-    formatStatement(`import type { InferRouterSearchSchema, RouteUsesServerHead } from '@richie-router/core'`, options),
+    formatStatement(`import { getRouteSchemaEntry, getRouterSchemaHostedRouting } from '@richie-router/core'`, options),
+    formatStatement(`import type { InferRouterSearchSchema, RouteUsesServerHead, RouterSchemaRouteIds } from '@richie-router/core'`, options),
     '',
     ...routeImports,
     '',
     formatStatement(
-      `const ${rootRoute.variableName} = ${rootRoute.importName}${buildRouteMetadataAccess(rootRoute.id, quoteStyle)}`,
+      `const ${rootRoute.variableName} = ${rootRoute.importName}${buildRouteMetadataAccess(rootRoute.id, quoteStyle)}._setHostedRouting(getRouterSchemaHostedRouting(routerSchema))`,
       options,
     ),
     '',
@@ -504,7 +521,7 @@ function buildGeneratedClientFile(routes: ScannedRouteFile[], options: GenerateR
     'type IsEqual<TLeft, TRight> = (<TValue>() => TValue extends TLeft ? 1 : 2) extends (<TValue>() => TValue extends TRight ? 1 : 2) ? true : false',
     'type HasInlineHead<TRoute> = TRoute extends { __hasInlineHead: infer TValue } ? TValue : false',
     `type FileRouteIds = ${fileRouteIdsUnion}`,
-    'type RouterSchemaKeyAssertion = Assert<Exclude<keyof RouterSchema, FileRouteIds> extends never ? true : false>',
+    'type RouterSchemaKeyAssertion = Assert<Exclude<RouterSchemaRouteIds<RouterSchema>, FileRouteIds> extends never ? true : false>',
     ...idAssertions,
     ...serverHeadAssertions,
     '',
@@ -590,7 +607,7 @@ function buildGeneratedManifestFile(routes: ScannedRouteFile[], options: Generat
 
   return [
     '/* eslint-disable */',
-    formatStatement(`import { createRouteNode } from '@richie-router/core'`, options),
+    formatStatement(`import { createRouteNode, getRouteSchemaEntry, getRouterSchemaHostedRouting } from '@richie-router/core'`, options),
     formatStatement(`import { routerSchema } from ${quote(schemaImport, quoteStyle)}`, options),
     '',
     ...routeDeclarations,
@@ -599,14 +616,14 @@ function buildGeneratedManifestFile(routes: ScannedRouteFile[], options: Generat
     '',
     formatStatement(`const ${rootChildrenName} = {\n${rootChildren.join('\n')}\n}`, options),
     formatStatement(
-      `export const routeManifest = ${rootRoute.variableName}._addFileChildren(${rootChildrenName})`,
+      `export const routeManifest = ${rootRoute.variableName}._addFileChildren(${rootChildrenName})._setHostedRouting(getRouterSchemaHostedRouting(routerSchema))`,
       options,
     ),
     '',
   ].join('\n');
 }
 
-function buildGeneratedRoutesJson(routes: ScannedRouteFile[]): string {
+function buildGeneratedRoutesJson(routes: ScannedRouteFile[], hostedRouting: HostedRoutingConfig): string {
   const { rootRoute, nonRootRoutes, routesById, childrenByParent } = buildRouteCollections(routes);
   const allRoutes = [rootRoute, ...nonRootRoutes];
   const spaRoutes = collectRegisteredSpaRoutes(rootRoute, routesById, childrenByParent);
@@ -620,6 +637,7 @@ function buildGeneratedRoutesJson(routes: ScannedRouteFile[]): string {
         isRoot: route.isRoot,
       })),
       spaRoutes,
+      hostedRouting,
     },
     null,
     2,
@@ -639,7 +657,9 @@ export async function generateRouteTree(options: GenerateRouteTreeOptions): Prom
 
   const jsonOutput = getJsonOutputPath(options);
   if (jsonOutput) {
-    const generatedJson = buildGeneratedRoutesJson(routes);
+    const routerSchema = await loadRouterSchema(options.routerSchema);
+    const hostedRouting = getRouterSchemaHostedRouting(routerSchema);
+    const generatedJson = buildGeneratedRoutesJson(routes, hostedRouting);
     await writeFile(jsonOutput, generatedJson, 'utf8');
   }
 }

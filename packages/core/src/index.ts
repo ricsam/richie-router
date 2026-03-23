@@ -12,8 +12,84 @@ export interface RouterSchemaEntry<
 }
 
 export type RouterSchemaShape = Record<string, RouterSchemaEntry>;
+export interface RouterSchemaOptions {
+  passthrough?: string[];
+  headBasePath?: string;
+}
 
-export function defineRouterSchema<const TSchema extends RouterSchemaShape>(schema: TSchema): TSchema {
+export interface HostedRoutingConfig {
+  passthrough: string[];
+  headBasePath: string;
+}
+
+export const ROUTER_SCHEMA_CONFIG_KEY = Symbol.for('richie-router.router-schema-config');
+export const DEFAULT_HEAD_BASE_PATH = '/head-api';
+
+export type RouterSchema<TRoutes extends RouterSchemaShape = RouterSchemaShape> = TRoutes & {
+  readonly [ROUTER_SCHEMA_CONFIG_KEY]?: HostedRoutingConfig;
+};
+
+export type AnyRouterSchema = RouterSchemaShape & {
+  readonly [ROUTER_SCHEMA_CONFIG_KEY]?: HostedRoutingConfig;
+};
+
+export type RouterSchemaRoutes<TSchema extends AnyRouterSchema> = {
+  [TRouteId in keyof TSchema as TRouteId extends typeof ROUTER_SCHEMA_CONFIG_KEY ? never : TRouteId]: TSchema[TRouteId];
+};
+
+export type RouterSchemaRouteIds<TSchema extends AnyRouterSchema> = Extract<keyof RouterSchemaRoutes<TSchema>, string>;
+
+function ensureLeadingSlash(value: string): string {
+  return value.startsWith('/') ? value : `/${value}`;
+}
+
+function normalizeHostedPath(value: string): string {
+  const trimmed = value.trim();
+  if (trimmed === '' || trimmed === '/') {
+    return '/';
+  }
+
+  return ensureLeadingSlash(trimmed).replace(/\/+$/u, '') || '/';
+}
+
+function dedupePaths(values: string[]): string[] {
+  const unique = new Set<string>();
+
+  for (const value of values) {
+    if (!unique.has(value)) {
+      unique.add(value);
+    }
+  }
+
+  return [...unique];
+}
+
+export function resolveHostedRoutingConfig(config?: Partial<HostedRoutingConfig> | RouterSchemaOptions): HostedRoutingConfig {
+  const headBasePath = normalizeHostedPath(config?.headBasePath ?? DEFAULT_HEAD_BASE_PATH);
+  const passthrough = dedupePaths([
+    headBasePath,
+    ...(config?.passthrough ?? []).map(normalizeHostedPath),
+  ]);
+
+  return {
+    headBasePath,
+    passthrough,
+  };
+}
+
+export function defineRouterSchema<const TRoutes extends RouterSchemaShape>(
+  routes: TRoutes,
+  options?: RouterSchemaOptions,
+): RouterSchema<TRoutes> {
+  const schema = { ...routes } as RouterSchema<TRoutes>;
+
+  Object.defineProperty(schema, ROUTER_SCHEMA_CONFIG_KEY, {
+    value: resolveHostedRoutingConfig(options),
+    enumerable: false,
+    configurable: false,
+    writable: false,
+  });
+
   return schema;
 }
 
@@ -24,23 +100,35 @@ type SchemaOutput<TSchema> = TSchema extends { _output: infer TOutput }
     : never;
 
 export type InferRouterSearchSchema<
-  TSchema extends RouterSchemaShape,
+  TSchema extends AnyRouterSchema,
   TRouteId extends string,
-> = TRouteId extends keyof TSchema
-  ? TSchema[TRouteId] extends { searchSchema: infer TSearchSchema }
+> = TRouteId extends RouterSchemaRouteIds<TSchema>
+  ? RouterSchemaRoutes<TSchema>[TRouteId] extends { searchSchema: infer TSearchSchema }
     ? SchemaOutput<TSearchSchema>
     : {}
   : {};
 
-export type RouteIdsWithServerHead<TSchema extends RouterSchemaShape> = {
-  [TRouteId in keyof TSchema]: TSchema[TRouteId] extends { serverHead: true } ? TRouteId : never;
-}[keyof TSchema] & string;
+export type RouteIdsWithServerHead<TSchema extends AnyRouterSchema> = {
+  [TRouteId in RouterSchemaRouteIds<TSchema>]:
+    RouterSchemaRoutes<TSchema>[TRouteId] extends { serverHead: true } ? TRouteId : never;
+}[RouterSchemaRouteIds<TSchema>] & string;
 
-export type RouteUsesServerHead<TSchema extends RouterSchemaShape, TRouteId extends string> = TRouteId extends keyof TSchema
-  ? TSchema[TRouteId] extends { serverHead: true }
+export type RouteUsesServerHead<TSchema extends AnyRouterSchema, TRouteId extends string> = TRouteId extends RouterSchemaRouteIds<TSchema>
+  ? RouterSchemaRoutes<TSchema>[TRouteId] extends { serverHead: true }
     ? true
     : false
   : false;
+
+export function getRouteSchemaEntry<TSchema extends AnyRouterSchema>(
+  schema: TSchema,
+  routeId: string,
+): RouterSchemaEntry | undefined {
+  return (schema as RouterSchemaShape)[routeId];
+}
+
+export function getRouterSchemaHostedRouting(schema: AnyRouterSchema): HostedRoutingConfig {
+  return resolveHostedRoutingConfig(schema[ROUTER_SCHEMA_CONFIG_KEY]);
+}
 
 export type ResolveAllParamsForRouteId<TRouteId extends string> = TRouteId extends '__root__'
   ? ResolveAllParams<'/'>
@@ -317,6 +405,7 @@ export class RouteNode<
   public children: AnyRoute[] = [];
   public searchSchema?: SchemaLike<TSearch>;
   public serverHead = false;
+  public hostedRouting: HostedRoutingConfig = resolveHostedRoutingConfig();
   public routeTypes?: TFileTypes;
   public readonly isRoot: boolean;
   public readonly options: RouteOptions<TId, TSearch>;
@@ -374,6 +463,11 @@ export class RouteNode<
 
   public _setServerHead(serverHead: boolean | undefined): this {
     this.serverHead = serverHead === true;
+    return this;
+  }
+
+  public _setHostedRouting(config: HostedRoutingConfig | undefined): this {
+    this.hostedRouting = resolveHostedRoutingConfig(config);
     return this;
   }
 }

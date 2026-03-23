@@ -1,5 +1,11 @@
 # @richie-router/core
 
+## 0.1.5
+
+### Patch Changes
+
+- add passthrough routes (that go directly to the API) and move headBasePath to the RouterSchema
+
 ## 0.1.4
 
 ### Patch Changes

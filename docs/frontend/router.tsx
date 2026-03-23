@@ -25,7 +25,6 @@ function DefaultError(props: { error: Error; reset: () => void }) {
 export function createDocsRouter(overrides: Partial<RouterOptions<typeof routeTree>> = {}) {
   return createRouter({
     routeTree,
-    headBasePath: '/head-api',
     defaultPreload: 'intent',
     defaultPreloadDelay: 40,
     defaultNotFoundComponent: DefaultNotFound,

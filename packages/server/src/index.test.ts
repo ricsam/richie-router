@@ -1,11 +1,12 @@
 import { describe, expect, test } from 'bun:test';
 import { defineRouterSchema, redirect, createRouteNode } from '@richie-router/core';
-import { defineHeadTags, handleHeadRequest, handleHeadTagRequest, handleRequest, handleSpaRequest, matchesSpaPath } from './index';
+import { defineHeadTags, handleHeadRequest, handleHeadTagRequest, handleRequest, handleSpaRequest, matchesPassthroughPath, matchesSpaPath } from './index';
 
 function createTestArtifacts(options?: {
   redirectAbout?: boolean;
   customHeadElement?: boolean;
   aboutStaleTime?: number;
+  headBasePath?: string;
 }) {
   const rootRoute = createRouteNode('__root__', {}, { isRoot: true });
   const indexRoute = createRouteNode('/', {});
@@ -36,6 +37,9 @@ function createTestArtifacts(options?: {
     '/about': {
       serverHead: true,
     },
+  }, {
+    passthrough: ['/api/$'],
+    headBasePath: options?.headBasePath,
   });
 
   const headTags = defineHeadTags(rootRoute, routerSchema, {
@@ -60,6 +64,10 @@ function createTestArtifacts(options?: {
       },
     },
   });
+  rootRoute._setHostedRouting({
+    headBasePath: options?.headBasePath ?? '/head-api',
+    passthrough: [options?.headBasePath ?? '/head-api', '/api/$'],
+  });
 
   return {
     routeManifest: rootRoute,
@@ -76,6 +84,10 @@ function createTestArtifacts(options?: {
         { id: '/posts/$postId', to: '/posts/$postId', parentId: '/posts', isRoot: false },
       ],
       spaRoutes: ['/', '/about', '/dashboard', '/posts', '/posts/$postId'],
+      hostedRouting: {
+        headBasePath: options?.headBasePath ?? '/head-api',
+        passthrough: [options?.headBasePath ?? '/head-api', '/api/$'],
+      },
     },
   };
 }
@@ -188,6 +200,25 @@ describe('handleSpaRequest', () => {
     })).toBe(true);
 
     expect(matchesSpaPath('/project/api/health', {
+      spaRoutesManifest,
+      basePath: '/project',
+    })).toBe(false);
+  });
+
+  test('exposes passthrough matching for host-side routing decisions', () => {
+    const { spaRoutesManifest, routeManifest } = createTestArtifacts();
+
+    expect(matchesPassthroughPath('/project/head-api', {
+      spaRoutesManifest,
+      basePath: '/project',
+    })).toBe(true);
+
+    expect(matchesPassthroughPath('/project/api/health', {
+      routeManifest,
+      basePath: '/project',
+    })).toBe(true);
+
+    expect(matchesPassthroughPath('/project/about', {
       spaRoutesManifest,
       basePath: '/project',
     })).toBe(false);
@@ -367,6 +398,30 @@ describe('handleRequest basePath', () => {
     const result = await handleHeadTagRequest(
       new Request(
         'https://example.com/project/head-api?routeId=%2Fabout&params=%7B%7D&search=%7B%7D',
+      ),
+      {
+        headTags,
+        basePath: '/project',
+      },
+    );
+
+    expect(result.matched).toBe(true);
+    expect(result.response.status).toBe(200);
+    expect(await result.response.json()).toEqual({
+      head: [
+        { tag: 'title', children: 'About' },
+      ],
+    });
+  });
+
+  test('reads a custom headBasePath from the router schema', async () => {
+    const { headTags } = createTestArtifacts({
+      headBasePath: '/meta',
+    });
+
+    const result = await handleHeadTagRequest(
+      new Request(
+        'https://example.com/project/meta?routeId=%2Fabout&params=%7B%7D&search=%7B%7D',
       ),
       {
         headTags,

@@ -3,18 +3,22 @@ import {
   createParsedLocation,
   defaultParseSearch,
   defaultStringifySearch,
+  getRouteSchemaEntry,
+  getRouterSchemaHostedRouting,
   type ResolveAllParamsForRouteId,
   type RouteIdsWithServerHead,
-  type RouterSchemaShape,
+  type AnyRouterSchema,
   type InferRouterSearchSchema,
   isNotFound,
   isRedirect,
   matchPathname,
   matchRouteTree,
   resolveHeadConfig,
+  resolveHostedRoutingConfig,
   serializeHeadConfig,
   type AnyRoute,
   type HeadConfig,
+  type HostedRoutingConfig,
   type ParsedLocation,
   type RouteHeadEntry,
   type RouteMatch,
@@ -31,20 +35,20 @@ export interface HeadTagDefinition<TParams extends Record<string, string>, TSear
   head: (ctx: HeadTagContext<TParams, TSearch>) => Promise<HeadConfig> | HeadConfig;
 }
 
-export type HeadTagDefinitions<TRouterSchema extends RouterSchemaShape> = {
+export type HeadTagDefinitions<TRouterSchema extends AnyRouterSchema> = {
   [TRouteId in RouteIdsWithServerHead<TRouterSchema>]: HeadTagDefinition<
     ResolveAllParamsForRouteId<TRouteId>,
     InferRouterSearchSchema<TRouterSchema, TRouteId>
   >;
 };
 
-export interface DefinedHeadTags<TRouteManifest extends AnyRoute, TRouterSchema extends RouterSchemaShape> {
+export interface DefinedHeadTags<TRouteManifest extends AnyRoute, TRouterSchema extends AnyRouterSchema> {
   routeManifest: TRouteManifest;
   routerSchema: TRouterSchema;
   definitions: HeadTagDefinitions<TRouterSchema>;
 }
 
-export function defineHeadTags<TRouteManifest extends AnyRoute, TRouterSchema extends RouterSchemaShape>(
+export function defineHeadTags<TRouteManifest extends AnyRoute, TRouterSchema extends AnyRouterSchema>(
   routeManifest: TRouteManifest,
   routerSchema: TRouterSchema,
   definitions: HeadTagDefinitions<TRouterSchema>,
@@ -76,6 +80,7 @@ export interface SpaRoutesManifestRoute {
 export interface SpaRoutesManifest {
   routes?: SpaRoutesManifestRoute[];
   spaRoutes: string[];
+  hostedRouting?: HostedRoutingConfig;
 }
 
 interface BaseMatchSpaPathOptions {
@@ -93,19 +98,17 @@ interface DocumentResponseOptions {
 
 export type HandleSpaRequestOptions = MatchSpaPathOptions & DocumentResponseOptions;
 
-export interface HandleRequestOptions<TRouteManifest extends AnyRoute, TRouterSchema extends RouterSchemaShape> {
+export interface HandleRequestOptions<TRouteManifest extends AnyRoute, TRouterSchema extends AnyRouterSchema> {
   routeManifest: TRouteManifest;
   headTags: DefinedHeadTags<TRouteManifest, TRouterSchema>;
   html: HtmlOptions;
   basePath?: string;
   headers?: HeadersInit;
-  headBasePath?: string;
 }
 
-export interface HandleHeadTagRequestOptions<TRouteManifest extends AnyRoute, TRouterSchema extends RouterSchemaShape> {
+export interface HandleHeadTagRequestOptions<TRouteManifest extends AnyRoute, TRouterSchema extends AnyRouterSchema> {
   headTags: DefinedHeadTags<TRouteManifest, TRouterSchema>;
   basePath?: string;
-  headBasePath?: string;
 }
 
 export interface HandleRequestResult {
@@ -378,6 +381,18 @@ function resolveSpaRoutes(spaRoutesManifest: SpaRoutesManifest): string[] {
   return spaRoutes;
 }
 
+function resolveHostedRouting(options: MatchSpaPathOptions): HostedRoutingConfig {
+  if ('routeManifest' in options) {
+    return resolveHostedRoutingConfig(options.routeManifest.hostedRouting);
+  }
+
+  return resolveHostedRoutingConfig(options.spaRoutesManifest.hostedRouting);
+}
+
+function matchesPassthroughLocation(options: MatchSpaPathOptions, location: ParsedLocation): boolean {
+  return resolveHostedRouting(options).passthrough.some(route => matchPathname(route, location.pathname) !== null);
+}
+
 function matchesSpaLocation(options: MatchSpaPathOptions, location: ParsedLocation): boolean {
   if ('routeManifest' in options) {
     return buildMatches(options.routeManifest, location).length > 0;
@@ -398,7 +413,19 @@ export function matchesSpaPath(
   return matchesSpaLocation(options, documentRequest.location);
 }
 
-async function executeHeadTag<TRouteManifest extends AnyRoute, TRouterSchema extends RouterSchemaShape>(
+export function matchesPassthroughPath(
+  path: string,
+  options: MatchSpaPathOptions,
+): boolean {
+  const documentRequest = resolveDocumentPath(path, options.basePath);
+  if (documentRequest === null) {
+    return false;
+  }
+
+  return matchesPassthroughLocation(options, documentRequest.location);
+}
+
+async function executeHeadTag<TRouteManifest extends AnyRoute, TRouterSchema extends AnyRouterSchema>(
   request: Request,
   headTags: DefinedHeadTags<TRouteManifest, TRouterSchema>,
   routeId: string,
@@ -408,7 +435,7 @@ async function executeHeadTag<TRouteManifest extends AnyRoute, TRouterSchema ext
   const definition = headTags.definitions[routeId as keyof typeof headTags.definitions] as
     | HeadTagDefinition<Record<string, string>, unknown>
     | undefined;
-  const schemaEntry = headTags.routerSchema[routeId];
+  const schemaEntry = getRouteSchemaEntry(headTags.routerSchema, routeId);
 
   if (!definition) {
     throw new Error(`Unknown server head route "${routeId}".`);
@@ -427,7 +454,7 @@ async function executeHeadTag<TRouteManifest extends AnyRoute, TRouterSchema ext
   };
 }
 
-async function resolveMatchedHead<TRouteManifest extends AnyRoute, TRouterSchema extends RouterSchemaShape>(
+async function resolveMatchedHead<TRouteManifest extends AnyRoute, TRouterSchema extends AnyRouterSchema>(
   request: Request,
   headTags: DefinedHeadTags<TRouteManifest, TRouterSchema>,
   matches: RouteMatch[],
@@ -471,7 +498,7 @@ function createDocumentHeadRequest(sourceRequest: Request, href: string): Reques
   });
 }
 
-async function handleDocumentHeadRequest<TRouteManifest extends AnyRoute, TRouterSchema extends RouterSchemaShape>(
+async function handleDocumentHeadRequest<TRouteManifest extends AnyRoute, TRouterSchema extends AnyRouterSchema>(
   request: Request,
   options: HandleHeadTagRequestOptions<TRouteManifest, TRouterSchema>,
   href: string,
@@ -560,13 +587,16 @@ async function handleDocumentHeadRequest<TRouteManifest extends AnyRoute, TRoute
   }
 }
 
-export async function handleHeadRequest<TRouteManifest extends AnyRoute, TRouterSchema extends RouterSchemaShape>(
+export async function handleHeadRequest<TRouteManifest extends AnyRoute, TRouterSchema extends AnyRouterSchema>(
   request: Request,
   options: HandleHeadTagRequestOptions<TRouteManifest, TRouterSchema>,
 ): Promise<HandleRequestResult> {
   const url = new URL(request.url);
   const basePath = normalizeBasePath(options.basePath);
-  const headBasePath = options.headBasePath ?? prependBasePathToPathname('/head-api', basePath);
+  const headBasePath = prependBasePathToPathname(
+    getRouterSchemaHostedRouting(options.headTags.routerSchema).headBasePath,
+    basePath,
+  );
 
   if (url.pathname !== headBasePath) {
     return {
@@ -627,7 +657,7 @@ export async function handleHeadRequest<TRouteManifest extends AnyRoute, TRouter
   }
 }
 
-export async function handleHeadTagRequest<TRouteManifest extends AnyRoute, TRouterSchema extends RouterSchemaShape>(
+export async function handleHeadTagRequest<TRouteManifest extends AnyRoute, TRouterSchema extends AnyRouterSchema>(
   request: Request,
   options: HandleHeadTagRequestOptions<TRouteManifest, TRouterSchema>,
 ): Promise<HandleRequestResult> {
@@ -654,7 +684,7 @@ export async function handleSpaRequest(
   });
 }
 
-export async function handleRequest<TRouteManifest extends AnyRoute, TRouterSchema extends RouterSchemaShape>(
+export async function handleRequest<TRouteManifest extends AnyRoute, TRouterSchema extends AnyRouterSchema>(
   request: Request,
   options: HandleRequestOptions<TRouteManifest, TRouterSchema>,
 ): Promise<HandleRequestResult> {
@@ -662,7 +692,6 @@ export async function handleRequest<TRouteManifest extends AnyRoute, TRouterSche
   const handledHeadTagRequest = await handleHeadTagRequest(request, {
     headTags: options.headTags,
     basePath,
-    headBasePath: options.headBasePath,
   });
 
   if (handledHeadTagRequest.matched) {

@@ -216,6 +216,8 @@ export const routerSchema = defineRouterSchema({
       limit: z.coerce.number().default(5),
     }),
   },
+}, {
+  passthrough: ['/api/$'],
 });
 
 export type RouterSchema = typeof routerSchema;
@@ -244,7 +246,7 @@ export const router = createRouter({
 
 `RouterProvider` renders the matched route component tree and reconciles managed head tags in `document.head`.
 
-`basePath` and `headBasePath` are related but different. `basePath` is the SPA pathname prefix, such as `https://host.com/project/*`. It changes route matching, `useLocation()`, and generated link/history hrefs. `headBasePath` is only the JSON endpoint used by server head loaders. If you omit `headBasePath`, it defaults to `${basePath}/head-api` when `basePath` is set, otherwise `/head-api`. Override it explicitly if your head API lives somewhere else, for example `headBasePath: '/head-api'`.
+`basePath` is the SPA pathname prefix, such as `https://host.com/project/*`. It changes route matching, `useLocation()`, and generated link/history hrefs. `headBasePath` now belongs to `defineRouterSchema(..., { headBasePath })`, alongside `passthrough`. If you omit it, Richie Router defaults to `/head-api`, and that path is always treated as an implicit passthrough route.
 
 ```tsx
 import { createRoot } from 'react-dom/client';
@@ -333,15 +335,21 @@ Set `staleTime` on each server head definition. The client reuses matching route
 
 ## 9. Request Handling
 
-`matchesSpaPath()` is the low-level matcher for deciding whether a path should be handled by your SPA shell. `handleSpaRequest()` builds on that and serves SPA document requests without any server head-tag work. It accepts either a server-safe `routeManifest` or a parsed `spa-routes.gen.json` manifest. `handleHeadRequest()` is the scoped helper for the JSON endpoint used by client head-tag loaders and host-owned HTML shells. `handleHeadTagRequest()` remains as a backwards-compatible alias. `handleRequest()` composes both concerns as a convenience when you want SPA document handling plus server head tags.
+`matchesSpaPath()` is the low-level matcher for deciding whether a path should be handled by your SPA shell. `matchesPassthroughPath()` uses the same generated manifest metadata to keep server-only routes like `/api/$` and the head endpoint out of the SPA shell. `handleSpaRequest()` builds on SPA matching and serves document requests without any server head-tag work. It accepts either a server-safe `routeManifest` or a parsed `spa-routes.gen.json` manifest. `handleHeadRequest()` is the scoped helper for the JSON endpoint used by client head-tag loaders and host-owned HTML shells. `handleHeadTagRequest()` remains as a backwards-compatible alias. `handleRequest()` composes both concerns as a convenience when you want SPA document handling plus server head tags.
 
 ```ts
-import { matchesSpaPath } from '@richie-router/server';
+import { matchesPassthroughPath, matchesSpaPath } from '@richie-router/server';
 
-if (matchesSpaPath('/project/posts/hello-world', {
+if (
+  !matchesPassthroughPath('/project/posts/hello-world', {
+    spaRoutesManifest,
+    basePath: '/project',
+  }) &&
+  matchesSpaPath('/project/posts/hello-world', {
   spaRoutesManifest,
   basePath: '/project',
-})) {
+  })
+) {
   // Your host can render or serve the SPA shell here.
 }
 ```
@@ -389,9 +397,9 @@ const handled = await handleRequest(request, {
 if (handled.matched) return handled.response;
 ```
 
-`basePath` on `matchesSpaPath()`, `handleSpaRequest()`, and `handleRequest()` is the SPA document prefix. It strips that prefix before matching backend SPA routes, and `handleRequest()` also prefixes redirect responses with it. Richie Router normalizes `"/"` to the root app and trims a trailing slash for you, so `"/project/"` and `"/project"` behave the same. `headBasePath` is separate and still refers to the concrete head API endpoint path. If you omit `headBasePath`, both `handleHeadRequest()` and `handleRequest()` default it to `${basePath}/head-api` when `basePath` is set, otherwise `/head-api`.
+`basePath` on `matchesSpaPath()`, `matchesPassthroughPath()`, `handleSpaRequest()`, and `handleRequest()` is the SPA document prefix. It strips that prefix before matching backend SPA routes, and `handleRequest()` also prefixes redirect responses with it. Richie Router normalizes `"/"` to the root app and trims a trailing slash for you, so `"/project/"` and `"/project"` behave the same. `headBasePath` comes from the shared router schema, not the request helpers.
 
-If you call `handleHeadRequest()` directly, pass either `basePath`, the actual `headBasePath`, or both when your head API lives somewhere custom. Route head requests still use `?routeId=...&params=...&search=...`. Host-owned shell requests can instead send `?href=/project/posts/hello-world` to receive `{ href, head, routeHeads, staleTime, richieRouterHead }` for the fully matched document head.
+If you call `handleHeadRequest()` directly, pass the same `headTags` object built from your shared router schema and an optional `basePath`. Route head requests still use `?routeId=...&params=...&search=...`. Host-owned shell requests can instead send `?href=/project/posts/hello-world` to receive `{ href, head, routeHeads, staleTime, richieRouterHead }` for the fully matched document head.
 
 Required template shape:
 

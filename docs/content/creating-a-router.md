@@ -40,7 +40,7 @@ export const router = createRouter({
 });
 ```
 
-`basePath` and `headBasePath` are related but different. `basePath` is the SPA pathname prefix, such as `https://host.com/project/*`. It changes route matching, `useLocation()`, and generated link/history hrefs. `headBasePath` is only the JSON endpoint used by server head loaders. If you omit `headBasePath`, it defaults to `${basePath}/head-api` when `basePath` is set, otherwise `/head-api`. Override it explicitly if your head API lives somewhere else, for example `headBasePath: '/head-api'`.
+`basePath` is the SPA pathname prefix, such as `https://host.com/project/*`. It changes route matching, `useLocation()`, and generated link/history hrefs. `headBasePath` now lives in `defineRouterSchema(..., { headBasePath })`, alongside `passthrough`. If you omit it, Richie Router defaults to `/head-api`, and that path is implicitly treated as a passthrough route.
 
 ## 3. Register the router type
 

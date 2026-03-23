@@ -20,6 +20,8 @@ export const routerSchema = defineRouterSchema({
       auth: z.coerce.boolean().default(false),
     }),
   },
+}, {
+  passthrough: ['/api/$'],
 });
 
 export type RouterSchema = typeof routerSchema;

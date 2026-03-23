@@ -14,6 +14,8 @@ export const routerSchema = defineRouterSchema({
       q: z.string().default(''),
     }),
   },
+}, {
+  passthrough: ['/api/$'],
 });
 
 export type RouterSchema = typeof routerSchema;

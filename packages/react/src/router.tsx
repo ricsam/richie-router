@@ -16,6 +16,7 @@ import {
   notFound,
   redirect,
   resolveHeadConfig,
+  resolveHostedRoutingConfig,
 } from '@richie-router/core';
 import type {
   AnyComponent,
@@ -238,7 +239,6 @@ export interface RouterOptions<TRouteTree extends AnyRoute> {
   defaultErrorComponent?: AnyComponent;
   scrollRestoration?: boolean;
   scrollToTopSelectors?: string[];
-  headBasePath?: string;
   trailingSlash?: 'always' | 'never' | 'preserve';
   parseSearch?: (searchStr: string) => Record<string, unknown>;
   stringifySearch?: (search: Record<string, unknown>) => string;
@@ -931,7 +931,10 @@ export class Router<TRouteTree extends AnyRoute> {
     params: Record<string, string>,
     search: unknown,
   ): Promise<{ head: HeadConfig; staleTime?: number }> {
-    const basePath = this.options.headBasePath ?? prependBasePathToHref('/head-api', this.basePath);
+    const basePath = prependBasePathToHref(
+      resolveHostedRoutingConfig(this.routeTree.hostedRouting).headBasePath,
+      this.basePath,
+    );
     const searchParams = new URLSearchParams({
       routeId: route.fullPath,
       params: JSON.stringify(params),
@@ -953,7 +956,10 @@ export class Router<TRouteTree extends AnyRoute> {
   private async fetchDocumentHead(
     location: ParsedLocation,
   ): Promise<DocumentHeadResponsePayload> {
-    const basePath = this.options.headBasePath ?? prependBasePathToHref('/head-api', this.basePath);
+    const basePath = prependBasePathToHref(
+      resolveHostedRoutingConfig(this.routeTree.hostedRouting).headBasePath,
+      this.basePath,
+    );
     const searchParams = new URLSearchParams({
       href: prependBasePathToHref(location.href, this.basePath),
     });

@@ -12,7 +12,7 @@ import {
   createRouter,
 } from './router';
 
-function createTestRouteTree(options?: { serverHead?: boolean }) {
+function createTestRouteTree(options?: { serverHead?: boolean; headBasePath?: string }) {
   const rootRoute = createRootRoute({
     component: () => null,
   });
@@ -24,6 +24,12 @@ function createTestRouteTree(options?: { serverHead?: boolean }) {
   });
 
   aboutRoute._setServerHead(options?.serverHead);
+  if (options?.headBasePath) {
+    rootRoute._setHostedRouting({
+      headBasePath: options.headBasePath,
+      passthrough: [options.headBasePath],
+    });
+  }
 
   return rootRoute._addFileChildren({
     index: indexRoute,
@@ -259,6 +265,44 @@ describe('createRouter basePath', () => {
 
       expect(fetchCalls).toHaveLength(1);
       expect(fetchCalls[0]).toBe('/project/head-api?href=%2Fproject%2Fabout');
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test('uses the route tree headBasePath for document head requests', async () => {
+    const history = createMemoryHistory({
+      initialEntries: ['/project/about'],
+    });
+    const fetchCalls: string[] = [];
+    const originalFetch = globalThis.fetch;
+
+    globalThis.fetch = (async (input: string | URL | Request) => {
+      fetchCalls.push(typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url);
+
+      return new Response(JSON.stringify({
+        head: [],
+        routeHeads: [
+          { routeId: '/about', head: [] },
+        ],
+      }), {
+        status: 200,
+        headers: {
+          'content-type': 'application/json',
+        },
+      });
+    }) as typeof fetch;
+
+    try {
+      const router = createRouter({
+        routeTree: createTestRouteTree({ serverHead: true, headBasePath: '/meta' }),
+        history,
+        basePath: '/project',
+      });
+
+      await router.load();
+
+      expect(fetchCalls).toEqual(['/project/meta?href=%2Fproject%2Fabout']);
     } finally {
       globalThis.fetch = originalFetch;
     }

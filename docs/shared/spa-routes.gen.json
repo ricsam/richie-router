@@ -29,5 +29,12 @@
     "/",
     "/docs/$slug",
     "/search"
-  ]
+  ],
+  "hostedRouting": {
+    "headBasePath": "/head-api",
+    "passthrough": [
+      "/head-api",
+      "/api/$"
+    ]
+  }
 }

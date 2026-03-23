@@ -33,7 +33,6 @@ export function createDemoRouter(overrides: Partial<RouterOptions<typeof routeTr
     defaultErrorComponent: DefaultError,
     scrollRestoration: true,
     scrollToTopSelectors: ['#main-content'],
-    headBasePath: '/head-api',
     trailingSlash: 'never',
     ...overrides,
   });

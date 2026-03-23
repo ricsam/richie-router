@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { createRouteNode, matchRouteTree } from './index';
+import { createRouteNode, defineRouterSchema, getRouterSchemaHostedRouting, matchRouteTree } from './index';
 
 function createCompetingRoutesTree() {
   const rootRoute = createRouteNode('__root__', {}, { isRoot: true });
@@ -65,5 +65,19 @@ describe('matchRouteTree specificity', () => {
       '/$username',
       '/$username/$slug',
     ]);
+  });
+});
+
+describe('router schema hosted routing', () => {
+  test('normalizes headBasePath and treats it as implicit passthrough', () => {
+    const routerSchema = defineRouterSchema({}, {
+      passthrough: ['/api/$', 'api/$'],
+      headBasePath: '/meta/',
+    });
+
+    expect(getRouterSchemaHostedRouting(routerSchema)).toEqual({
+      headBasePath: '/meta',
+      passthrough: ['/meta', '/api/$'],
+    });
   });
 });

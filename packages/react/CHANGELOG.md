@@ -1,5 +1,13 @@
 # @richie-router/react
 
+## 0.1.5
+
+### Patch Changes
+
+- fix wildcard priority
+- Updated dependencies
+  - @richie-router/core@0.1.4
+
 ## 0.1.4
 
 ### Patch Changes

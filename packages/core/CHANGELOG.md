@@ -1,5 +1,11 @@
 # @richie-router/core
 
+## 0.1.4
+
+### Patch Changes
+
+- fix wildcard priority
+
 ## 0.1.3
 
 ### Patch Changes

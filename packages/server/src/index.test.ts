@@ -80,6 +80,85 @@ function createTestArtifacts(options?: {
   };
 }
 
+function createCompetingHeadArtifacts() {
+  const rootRoute = createRouteNode('__root__', {}, { isRoot: true });
+  const usernameRoute = createRouteNode('/$username', {});
+  const usernameIndexRoute = createRouteNode('/$username/', {});
+  const usernameSlugRoute = createRouteNode('/$username/$slug', {});
+  const loginRoute = createRouteNode('/login', {});
+  const registerRoute = createRouteNode('/register', {});
+  const tagsTagRoute = createRouteNode('/tags/$tag', {});
+
+  usernameRoute._setServerHead(true);
+  usernameIndexRoute._setServerHead(true);
+  usernameSlugRoute._setServerHead(true);
+  loginRoute._setServerHead(true);
+  registerRoute._setServerHead(true);
+  tagsTagRoute._setServerHead(true);
+
+  usernameRoute._addFileChildren({
+    index: usernameIndexRoute,
+    slug: usernameSlugRoute,
+  });
+
+  rootRoute._addFileChildren({
+    username: usernameRoute,
+    login: loginRoute,
+    register: registerRoute,
+    tags: tagsTagRoute,
+  });
+
+  const routerSchema = defineRouterSchema({
+    '/$username/': {
+      serverHead: true,
+    },
+    '/$username/$slug': {
+      serverHead: true,
+    },
+    '/login': {
+      serverHead: true,
+    },
+    '/register': {
+      serverHead: true,
+    },
+    '/tags/$tag': {
+      serverHead: true,
+    },
+  });
+
+  const headTags = defineHeadTags(rootRoute, routerSchema, {
+    '/$username/': {
+      head: ({ params }) => [
+        { tag: 'title', children: `User ${params.username}` },
+      ],
+    },
+    '/$username/$slug': {
+      head: ({ params }) => [
+        { tag: 'title', children: `Post ${params.username}/${params.slug}` },
+      ],
+    },
+    '/login': {
+      head: () => [
+        { tag: 'title', children: 'Login' },
+      ],
+    },
+    '/register': {
+      head: () => [
+        { tag: 'title', children: 'Register' },
+      ],
+    },
+    '/tags/$tag': {
+      head: ({ params }) => [
+        { tag: 'title', children: `Tag ${params.tag}` },
+      ],
+    },
+  });
+
+  return {
+    headTags,
+  };
+}
+
 describe('handleSpaRequest', () => {
   test('treats "/" as the root basePath and trims trailing slashes', () => {
     const { spaRoutesManifest } = createTestArtifacts();
@@ -336,6 +415,50 @@ describe('handleRequest basePath', () => {
     expect(payload.richieRouterHead).toContain('About</title>');
     expect(payload.richieRouterHead).toContain('window.__RICHIE_ROUTER_HEAD__');
     expect(result.response.headers.get('cache-control')).toBe('private, no-store');
+  });
+
+  test('prefers static routes over dynamic siblings when resolving document head payloads', async () => {
+    const { headTags } = createCompetingHeadArtifacts();
+
+    const tagResult = await handleHeadRequest(
+      new Request('https://example.com/head-api?href=%2Ftags%2Ftesting'),
+      {
+        headTags,
+      },
+    );
+
+    expect(tagResult.matched).toBe(true);
+    expect(await tagResult.response.json()).toMatchObject({
+      href: '/tags/testing',
+      routeHeads: [
+        {
+          routeId: '/tags/$tag',
+          head: [
+            { tag: 'title', children: 'Tag testing' },
+          ],
+        },
+      ],
+    });
+
+    const loginResult = await handleHeadRequest(
+      new Request('https://example.com/head-api?href=%2Flogin'),
+      {
+        headTags,
+      },
+    );
+
+    expect(loginResult.matched).toBe(true);
+    expect(await loginResult.response.json()).toMatchObject({
+      href: '/login',
+      routeHeads: [
+        {
+          routeId: '/login',
+          head: [
+            { tag: 'title', children: 'Login' },
+          ],
+        },
+      ],
+    });
   });
 
   test('returns redirect responses for document head payload requests', async () => {

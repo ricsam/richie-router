@@ -122,6 +122,23 @@ function createLinkTestRouteTree(component: () => unknown) {
   });
 }
 
+function createStaticAndDynamicSiblingRouteTree() {
+  const rootRoute = createRootRoute({
+    component: () => null,
+  });
+  const registerRoute = createFileRoute('/register')({
+    component: () => null,
+  });
+  const usernameRoute = createFileRoute('/$username')({
+    component: () => null,
+  });
+
+  return rootRoute._addFileChildren({
+    register: registerRoute,
+    username: usernameRoute,
+  });
+}
+
 function renderLinkMarkup(initialEntry: string, component: () => unknown): string {
   const history = createMemoryHistory({
     initialEntries: [initialEntry],
@@ -616,6 +633,32 @@ describe('Link active state', () => {
       ));
 
     expect(markup).not.toContain('class="active"');
+  });
+});
+
+describe('route matching precedence', () => {
+  test('prefers a static sibling over a dynamic sibling', () => {
+    const router = createRouter({
+      routeTree: createStaticAndDynamicSiblingRouteTree(),
+      history: createMemoryHistory({
+        initialEntries: ['/register'],
+      }),
+    });
+
+    expect(router.state.matches.at(-1)?.route.fullPath).toBe('/register');
+    expect(router.state.matches.at(-1)?.params).toEqual({});
+  });
+
+  test('falls back to the dynamic sibling when no static sibling matches', () => {
+    const router = createRouter({
+      routeTree: createStaticAndDynamicSiblingRouteTree(),
+      history: createMemoryHistory({
+        initialEntries: ['/richie'],
+      }),
+    });
+
+    expect(router.state.matches.at(-1)?.route.fullPath).toBe('/$username');
+    expect(router.state.matches.at(-1)?.params).toEqual({ username: 'richie' });
   });
 });
 

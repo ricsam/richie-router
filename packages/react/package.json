@@ -1,6 +1,6 @@
 {
   "name": "@richie-router/react",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "React runtime, components, and hooks for Richie Router",
   "type": "module",
   "sideEffects": false,

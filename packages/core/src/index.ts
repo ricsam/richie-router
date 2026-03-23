@@ -571,6 +571,43 @@ function scorePattern(pattern: string): number {
   }, 0);
 }
 
+function scoreSegmentSpecificity(segment: string | undefined): number {
+  if (segment === undefined) {
+    return -1;
+  }
+
+  if (segment === '$') {
+    return 1;
+  }
+
+  if (segment.startsWith('$')) {
+    return 2;
+  }
+
+  return 3;
+}
+
+function comparePatternSpecificity(leftPattern: string, rightPattern: string): number {
+  const leftSegments = normalizePattern(leftPattern);
+  const rightSegments = normalizePattern(rightPattern);
+  const maxLength = Math.max(leftSegments.length, rightSegments.length);
+
+  for (let index = 0; index < maxLength; index += 1) {
+    const leftSpecificity = scoreSegmentSpecificity(leftSegments[index]);
+    const rightSpecificity = scoreSegmentSpecificity(rightSegments[index]);
+
+    if (leftSpecificity !== rightSpecificity) {
+      return rightSpecificity - leftSpecificity;
+    }
+  }
+
+  if (leftSegments.length !== rightSegments.length) {
+    return rightSegments.length - leftSegments.length;
+  }
+
+  return 0;
+}
+
 export interface RouteBranch {
   leaf: AnyRoute;
   routes: AnyRoute[];
@@ -610,7 +647,18 @@ export function collectBranches(routeTree: AnyRoute): RouteBranch[] {
 
   walk(routeTree, []);
 
-  return branches.sort((left, right) => right.score - left.score);
+  return branches.sort((left, right) => {
+    const specificityComparison = comparePatternSpecificity(left.leaf.to, right.leaf.to);
+    if (specificityComparison !== 0) {
+      return specificityComparison;
+    }
+
+    if (left.score !== right.score) {
+      return right.score - left.score;
+    }
+
+    return right.routes.length - left.routes.length;
+  });
 }
 
 export function collectRoutes(routeTree: AnyRoute): AnyRoute[] {

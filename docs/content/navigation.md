@@ -10,6 +10,14 @@
 </Link>
 ```
 
+For username-style routes, `@` stays visible in the path instead of being emitted as `%40`:
+
+```tsx
+<Link to="/$username" params={{ username: '@alice' }}>
+  Visit @alice
+</Link>
+```
+
 ## Navigate in code
 
 ```tsx

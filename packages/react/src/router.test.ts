@@ -681,6 +681,22 @@ describe('Link active state', () => {
 });
 
 describe('route matching precedence', () => {
+  test('preserves @ when building hrefs for dynamic params', () => {
+    const router = createRouter({
+      routeTree: createStaticAndDynamicSiblingRouteTree(),
+      history: createMemoryHistory({
+        initialEntries: ['/'],
+      }),
+    });
+
+    expect(router.buildHref({
+      to: '/$username',
+      params: {
+        username: '@richie',
+      },
+    } as any)).toBe('/@richie');
+  });
+
   test('prefers a static sibling over a dynamic sibling', () => {
     const router = createRouter({
       routeTree: createStaticAndDynamicSiblingRouteTree(),

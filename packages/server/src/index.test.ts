@@ -171,6 +171,52 @@ function createCompetingHeadArtifacts() {
   };
 }
 
+function createUsernameRedirectArtifacts() {
+  const rootRoute = createRouteNode('__root__', {}, { isRoot: true });
+  const usernameRoute = createRouteNode('/$username', {});
+  const legacyUsernameRoute = createRouteNode('/legacy/$username', {});
+
+  usernameRoute._setServerHead(true);
+  legacyUsernameRoute._setServerHead(true);
+
+  rootRoute._addFileChildren({
+    username: usernameRoute,
+    legacyUsername: legacyUsernameRoute,
+  });
+
+  const routerSchema = defineRouterSchema({
+    '/$username': {
+      serverHead: true,
+    },
+    '/legacy/$username': {
+      serverHead: true,
+    },
+  });
+
+  const headTags = defineHeadTags(rootRoute, routerSchema, {
+    '/$username': {
+      head: ({ params }) => [
+        { tag: 'title', children: `User ${params.username}` },
+      ],
+    },
+    '/legacy/$username': {
+      head: ({ params }) => {
+        redirect({
+          to: '/$username',
+          params: {
+            username: params.username,
+          },
+        });
+      },
+    },
+  });
+
+  return {
+    routeManifest: rootRoute,
+    headTags,
+  };
+}
+
 describe('handleSpaRequest', () => {
   test('treats "/" as the root basePath and trims trailing slashes', () => {
     const { spaRoutesManifest } = createTestArtifacts();
@@ -364,6 +410,23 @@ describe('handleRequest basePath', () => {
     expect(result.matched).toBe(true);
     expect(result.response.status).toBe(302);
     expect(result.response.headers.get('location')).toBe('/project');
+  });
+
+  test('preserves @ in redirect targets built from params', async () => {
+    const { routeManifest, headTags } = createUsernameRedirectArtifacts();
+
+    const result = await handleRequest(new Request('https://example.com/project/legacy/%40alice'), {
+      routeManifest,
+      headTags,
+      basePath: '/project',
+      html: {
+        template: '<html><head><!--richie-router-head--></head><body></body></html>',
+      },
+    });
+
+    expect(result.matched).toBe(true);
+    expect(result.response.status).toBe(302);
+    expect(result.response.headers.get('location')).toBe('/project/@alice');
   });
 
   test('uses the basePath for default head API requests handled through handleRequest', async () => {

@@ -1,5 +1,13 @@
 # @richie-router/react
 
+## 0.1.7
+
+### Patch Changes
+
+- add support for @ in urls
+- Updated dependencies
+  - @richie-router/core@0.1.6
+
 ## 0.1.6
 
 ### Patch Changes

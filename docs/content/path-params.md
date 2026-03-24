@@ -37,3 +37,5 @@ function PostPage() {
 ```
 
 Missing params are compile-time errors, so dynamic URLs stay honest.
+
+Path params still use normal URL encoding for reserved characters, but `@` is preserved in path segments so username-style routes can render clean URLs like `/@alice`.

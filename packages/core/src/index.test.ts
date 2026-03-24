@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { createRouteNode, defineRouterSchema, getRouterSchemaHostedRouting, matchRouteTree } from './index';
+import { buildPath, createRouteNode, defineRouterSchema, getRouterSchemaHostedRouting, matchPathname, matchRouteTree } from './index';
 
 function createCompetingRoutesTree() {
   const rootRoute = createRouteNode('__root__', {}, { isRoot: true });
@@ -65,6 +65,31 @@ describe('matchRouteTree specificity', () => {
       '/$username',
       '/$username/$slug',
     ]);
+  });
+});
+
+describe('path params', () => {
+  test('preserves @ when building dynamic paths', () => {
+    expect(buildPath('/$username', { username: '@alice' })).toBe('/@alice');
+    expect(buildPath('/files/$', { _splat: '@alice/posts' })).toBe('/files/@alice%2Fposts');
+  });
+
+  test('matches both literal and percent-encoded @ path params', () => {
+    expect(matchPathname('/$username', '/@alice')).toEqual({
+      params: {
+        username: '@alice',
+      },
+    });
+
+    expect(matchPathname('/$username', '/%40alice')).toEqual({
+      params: {
+        username: '@alice',
+      },
+    });
+  });
+
+  test('keeps encoding other reserved characters in path params', () => {
+    expect(buildPath('/$username', { username: '@al ice?/#%' })).toBe('/@al%20ice%3F%2F%23%25');
   });
 });
 

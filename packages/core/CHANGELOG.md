@@ -1,5 +1,11 @@
 # @richie-router/core
 
+## 0.1.6
+
+### Patch Changes
+
+- add support for @ in urls
+
 ## 0.1.5
 
 ### Patch Changes

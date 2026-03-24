@@ -566,6 +566,10 @@ function normalizePattern(pattern: string): string[] {
   return pattern.split('/').filter(Boolean);
 }
 
+function serializePathParamSegment(value: string): string {
+  return encodeURIComponent(value).replace(/%40/giu, '@');
+}
+
 export function buildPath(to: string, params: Record<string, string> = {}): string {
   const normalized = normalizeRouteIdRuntime(to);
 
@@ -575,7 +579,7 @@ export function buildPath(to: string, params: Record<string, string> = {}): stri
 
   const segments = normalized.split('/').filter(Boolean).map(segment => {
     if (segment === '$') {
-      return encodeURIComponent(params._splat ?? '');
+      return serializePathParamSegment(params._splat ?? '');
     }
 
     if (segment.startsWith('$')) {
@@ -586,7 +590,7 @@ export function buildPath(to: string, params: Record<string, string> = {}): stri
         throw new Error(`Missing route param "${key}" for path "${to}"`);
       }
 
-      return encodeURIComponent(value);
+      return serializePathParamSegment(value);
     }
 
     return segment;

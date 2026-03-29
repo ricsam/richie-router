@@ -1,6 +1,6 @@
 # Scroll Restoration
 
-@richie-router/ includes router-level scroll restoration for SPA navigation.
+@richie-router/ currently includes router-level scroll reset behavior for SPA navigation.
 
 ## Enable it on the router
 
@@ -12,7 +12,7 @@ const router = createRouter({
 });
 ```
 
-With this enabled, @richie-router/ restores history scroll positions and also scrolls the configured containers to the top after navigation.
+With this enabled, @richie-router/ scrolls the window to the top after successful navigation and also resets any configured containers to the top.
 
 ## Skip the reset for a navigation
 
@@ -32,6 +32,6 @@ await navigate({
 
 ## Current status
 
-`scrollRestoration` and `scrollToTopSelectors` are implemented today.
+The scroll-to-top behavior behind `scrollRestoration` and `scrollToTopSelectors` is implemented today.
 
-The exported `useElementScrollRestoration()` hook exists, but the current implementation is still a placeholder. If you need per-element restoration today, use the router-wide restoration plus explicit scroll management inside your components.
+Full history-position restoration is not implemented yet, and the exported `useElementScrollRestoration()` hook is still a placeholder. If you need per-element restoration today, use the router-wide reset plus explicit scroll management inside your components.

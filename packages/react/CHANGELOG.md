@@ -1,5 +1,11 @@
 # @richie-router/react
 
+## 0.1.8
+
+### Patch Changes
+
+- fix scroll restoration
+
 ## 0.1.7
 
 ### Patch Changes

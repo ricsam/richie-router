@@ -1057,9 +1057,10 @@ export class Router<TRouteTree extends AnyRoute> {
       return;
     }
 
+    window.scrollTo({ top: 0, left: 0, behavior: 'instant' as ScrollBehavior });
+
     const selectors = this.options.scrollToTopSelectors ?? [];
-    if (selectors.length === 0) {
-      window.scrollTo({ top: 0, left: 0, behavior: 'instant' as ScrollBehavior });
+    if (selectors.length === 0 || typeof document === 'undefined') {
       return;
     }
 

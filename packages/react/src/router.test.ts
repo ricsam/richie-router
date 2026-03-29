@@ -157,6 +157,81 @@ function renderLinkMarkup(initialEntry: string, component: () => unknown): strin
   return renderToStaticMarkup(React.createElement(RouterProvider, { router: router as any }));
 }
 
+type ScrollCall = {
+  top: number;
+  left: number;
+  behavior: string;
+};
+
+async function withMockScrollEnvironment<T>(
+  run: (ctx: {
+    windowScrollCalls: ScrollCall[];
+    containerScrollCalls: ScrollCall[];
+  }) => Promise<T>,
+): Promise<T> {
+  const globalWithDom = globalThis as any as {
+    window?: {
+      __RICHIE_ROUTER_HEAD__?: unknown;
+      scrollTo?: (...args: any[]) => void;
+    };
+    document?: {
+      querySelector?: (selector: string) => unknown;
+    };
+    HTMLElement?: unknown;
+  };
+  const originalWindow = globalWithDom.window;
+  const originalDocument = globalWithDom.document;
+  const originalHTMLElement = globalWithDom.HTMLElement;
+  const windowScrollCalls: ScrollCall[] = [];
+  const containerScrollCalls: ScrollCall[] = [];
+
+  class MockHTMLElement {
+    public scrollTo(options: ScrollCall): void {
+      containerScrollCalls.push(options);
+    }
+  }
+
+  const scrollContainer = new MockHTMLElement();
+
+  globalWithDom.window = {
+    __RICHIE_ROUTER_HEAD__: originalWindow?.__RICHIE_ROUTER_HEAD__,
+    scrollTo(...args: any[]) {
+      const [options] = args;
+      if (options) {
+        windowScrollCalls.push(options as ScrollCall);
+      }
+    },
+  };
+  globalWithDom.document = {
+    querySelector(selector: string) {
+      return selector === '#main-content' ? scrollContainer : null;
+    },
+  };
+  globalWithDom.HTMLElement = MockHTMLElement;
+
+  try {
+    return await run({ windowScrollCalls, containerScrollCalls });
+  } finally {
+    if (originalWindow === undefined) {
+      Reflect.deleteProperty(globalWithDom, 'window');
+    } else {
+      globalWithDom.window = originalWindow;
+    }
+
+    if (originalDocument === undefined) {
+      Reflect.deleteProperty(globalWithDom, 'document');
+    } else {
+      globalWithDom.document = originalDocument;
+    }
+
+    if (originalHTMLElement === undefined) {
+      Reflect.deleteProperty(globalWithDom, 'HTMLElement');
+    } else {
+      globalWithDom.HTMLElement = originalHTMLElement;
+    }
+  }
+}
+
 describe('createRouter basePath', () => {
   test('treats "/" as the root basePath', () => {
     const history = createMemoryHistory({
@@ -619,6 +694,53 @@ describe('createRouter basePath', () => {
     } finally {
       globalThis.fetch = originalFetch;
     }
+  });
+});
+
+describe('scroll reset', () => {
+  test('scrolls both window and configured containers to the top after navigation', async () => {
+    await withMockScrollEnvironment(async ({ windowScrollCalls, containerScrollCalls }) => {
+      const router = createRouter({
+        routeTree: createTestRouteTree(),
+        history: createMemoryHistory({
+          initialEntries: ['/'],
+        }),
+        scrollRestoration: true,
+        scrollToTopSelectors: ['#main-content'],
+      });
+
+      await router.navigate({
+        to: '/about',
+      });
+
+      expect(windowScrollCalls).toEqual([
+        { top: 0, left: 0, behavior: 'instant' },
+      ]);
+      expect(containerScrollCalls).toEqual([
+        { top: 0, left: 0, behavior: 'instant' },
+      ]);
+    });
+  });
+
+  test('skips all scroll resets when resetScroll is false', async () => {
+    await withMockScrollEnvironment(async ({ windowScrollCalls, containerScrollCalls }) => {
+      const router = createRouter({
+        routeTree: createTestRouteTree(),
+        history: createMemoryHistory({
+          initialEntries: ['/'],
+        }),
+        scrollRestoration: true,
+        scrollToTopSelectors: ['#main-content'],
+      });
+
+      await router.navigate({
+        to: '/about',
+        resetScroll: false,
+      });
+
+      expect(windowScrollCalls).toEqual([]);
+      expect(containerScrollCalls).toEqual([]);
+    });
   });
 });
 

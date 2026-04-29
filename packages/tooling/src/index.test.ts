@@ -82,3 +82,55 @@ test("generateRouteTree emits nested child assemblies before parents", async () 
     passthrough: ["/meta", "/api/$"],
   });
 });
+
+test("generateRouteTree can load router schema imports through a custom resolver", async () => {
+  const coreModulePath = new URL("../../core/src/index.ts", import.meta.url).pathname;
+  const rootDir = await mkdtemp(path.join(tmpdir(), "richie-router-tooling-resolver-"));
+  tempDirectories.push(rootDir);
+
+  const routesDir = path.join(rootDir, "routes");
+  await mkdir(routesDir, { recursive: true });
+  await Promise.all([
+    writeFile(path.join(routesDir, "__root.tsx"), "export const Route = {} as any;\n"),
+    writeFile(path.join(routesDir, "index.tsx"), "export const Route = {} as any;\n"),
+    writeFile(
+      path.join(rootDir, "router-schema.ts"),
+      [
+        'import { defineRouterSchema } from "@richie-router/core";',
+        "",
+        "export const routerSchema = defineRouterSchema({}, {",
+        "  passthrough: ['/api/$'],",
+        "  headBasePath: '/meta',",
+        "});",
+        "",
+      ].join("\n"),
+    ),
+  ]);
+
+  const routesJsonPath = path.join(rootDir, "spa-routes.gen.json");
+
+  await generateRouteTree({
+    routesDir,
+    routerSchema: path.join(rootDir, "router-schema.ts"),
+    output: path.join(rootDir, "route-tree.gen.ts"),
+    jsonOutput: routesJsonPath,
+    resolveRouterSchemaModule({ specifier }) {
+      if (specifier === "@richie-router/core") {
+        return coreModulePath;
+      }
+      return null;
+    },
+  });
+
+  const routesJsonContent = JSON.parse(await readFile(routesJsonPath, "utf8")) as {
+    hostedRouting?: {
+      headBasePath: string;
+      passthrough: string[];
+    };
+  };
+
+  expect(routesJsonContent.hostedRouting).toEqual({
+    headBasePath: "/meta",
+    passthrough: ["/meta", "/api/$"],
+  });
+});

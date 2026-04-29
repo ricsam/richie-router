@@ -1,8 +1,27 @@
-import { readdir, writeFile } from 'node:fs/promises';
+import { mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
 import { watch as fsWatch } from 'node:fs';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { getRouterSchemaHostedRouting, type AnyRouterSchema, type HostedRoutingConfig } from '@richie-router/core';
+
+export interface ResolveRouterSchemaModuleOptions {
+  specifier: string;
+  importer: string;
+}
+
+export type ResolveRouterSchemaModuleResult =
+  | string
+  | {
+      path: string;
+      external?: boolean;
+    }
+  | null
+  | undefined;
+
+export type ResolveRouterSchemaModule = (
+  options: ResolveRouterSchemaModuleOptions,
+) => ResolveRouterSchemaModuleResult | Promise<ResolveRouterSchemaModuleResult>;
 
 export interface GenerateRouteTreeOptions {
   routesDir: string;
@@ -12,6 +31,7 @@ export interface GenerateRouteTreeOptions {
   jsonOutput?: string;
   quoteStyle?: 'single' | 'double';
   semicolons?: boolean;
+  resolveRouterSchemaModule?: ResolveRouterSchemaModule;
 }
 
 export interface RouteTreeWatcher {
@@ -32,11 +52,7 @@ interface RouteFileRecord {
 }
 type ScannedRouteFile = RouteFileRecord;
 
-async function loadRouterSchema(routerSchemaPath: string): Promise<AnyRouterSchema> {
-  const schemaUrl = new URL(pathToFileURL(path.resolve(routerSchemaPath)).href);
-  schemaUrl.searchParams.set('t', `${Date.now()}`);
-
-  const module = await import(schemaUrl.toString());
+function readRouterSchemaExport(module: Record<string, unknown>, routerSchemaPath: string): AnyRouterSchema {
   const routerSchema = module.routerSchema as AnyRouterSchema | undefined;
 
   if (!routerSchema || typeof routerSchema !== 'object') {
@@ -44,6 +60,113 @@ async function loadRouterSchema(routerSchemaPath: string): Promise<AnyRouterSche
   }
 
   return routerSchema;
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
+}
+
+function rewriteExternalModuleSpecifiers(source: string, replacements: Map<string, string>): string {
+  let rewritten = source;
+
+  for (const [specifier, replacement] of replacements) {
+    const escapedSpecifier = escapeRegExp(specifier);
+    rewritten = rewritten
+      .replace(new RegExp(`(?<=\\bfrom\\s*["'])${escapedSpecifier}(?=["'])`, 'gu'), replacement)
+      .replace(new RegExp(`(?<=\\bimport\\s*["'])${escapedSpecifier}(?=["'])`, 'gu'), replacement)
+      .replace(new RegExp(`(?<=\\bimport\\s*\\(\\s*["'])${escapedSpecifier}(?=["']\\s*\\))`, 'gu'), replacement);
+  }
+
+  return rewritten;
+}
+
+async function loadRouterSchemaWithNativeImport(routerSchemaPath: string): Promise<AnyRouterSchema> {
+  const schemaUrl = new URL(pathToFileURL(path.resolve(routerSchemaPath)).href);
+  schemaUrl.searchParams.set('t', `${Date.now()}`);
+
+  const module = await import(schemaUrl.toString());
+  return readRouterSchemaExport(module as Record<string, unknown>, routerSchemaPath);
+}
+
+async function loadRouterSchemaWithResolver(
+  routerSchemaPath: string,
+  resolveRouterSchemaModule: ResolveRouterSchemaModule,
+): Promise<AnyRouterSchema> {
+  const externalModuleSpecifiers = new Map<string, string>();
+
+  const result = await Bun.build({
+    entrypoints: [path.resolve(routerSchemaPath)],
+    format: 'esm',
+    target: 'bun',
+    plugins: [
+      {
+        name: 'richie-router-schema-module-resolver',
+        setup(build) {
+          build.onResolve({ filter: /.*/u }, async args => {
+            if (!args.importer) {
+              return undefined;
+            }
+
+            const resolved = await resolveRouterSchemaModule({
+              specifier: args.path,
+              importer: args.importer,
+            });
+            if (!resolved) {
+              return undefined;
+            }
+
+            if (typeof resolved === 'string') {
+              externalModuleSpecifiers.set(args.path, pathToFileURL(resolved).href);
+              return { path: args.path, external: true };
+            }
+
+            if (resolved.external === false) {
+              return { path: resolved.path };
+            }
+
+            externalModuleSpecifiers.set(args.path, pathToFileURL(resolved.path).href);
+            return {
+              path: args.path,
+              external: true,
+            };
+          });
+        },
+      },
+    ],
+  });
+
+  if (!result.success) {
+    const details = result.logs.map(log => `[${log.level}] ${log.message}`).join('\n');
+    throw new Error(`Failed to bundle router schema "${routerSchemaPath}".${details ? `\n${details}` : ''}`);
+  }
+
+  const output = result.outputs[0];
+  if (!output) {
+    throw new Error(`Failed to bundle router schema "${routerSchemaPath}": no output was produced.`);
+  }
+
+  const source = rewriteExternalModuleSpecifiers(await output.text(), externalModuleSpecifiers);
+  const tempDirectory = await mkdtemp(path.join(tmpdir(), 'richie-router-schema-'));
+  const modulePath = path.join(tempDirectory, `router-schema-${Date.now()}.mjs`);
+
+  try {
+    await writeFile(modulePath, source, 'utf8');
+    const moduleUrl = new URL(pathToFileURL(modulePath).href);
+    moduleUrl.searchParams.set('t', `${Date.now()}`);
+    const module = await import(moduleUrl.toString());
+
+    return readRouterSchemaExport(module as Record<string, unknown>, routerSchemaPath);
+  } finally {
+    await rm(tempDirectory, { recursive: true, force: true });
+  }
+}
+
+async function loadRouterSchema(options: GenerateRouteTreeOptions): Promise<AnyRouterSchema> {
+  if (!options.resolveRouterSchemaModule) {
+    return loadRouterSchemaWithNativeImport(options.routerSchema);
+  }
+
+  return loadRouterSchemaWithResolver(options.routerSchema, options.resolveRouterSchemaModule);
 }
 
 function quote(value: string, quoteStyle: 'single' | 'double'): string {
@@ -657,7 +780,7 @@ export async function generateRouteTree(options: GenerateRouteTreeOptions): Prom
 
   const jsonOutput = getJsonOutputPath(options);
   if (jsonOutput) {
-    const routerSchema = await loadRouterSchema(options.routerSchema);
+    const routerSchema = await loadRouterSchema(options);
     const hostedRouting = getRouterSchemaHostedRouting(routerSchema);
     const generatedJson = buildGeneratedRoutesJson(routes, hostedRouting);
     await writeFile(jsonOutput, generatedJson, 'utf8');

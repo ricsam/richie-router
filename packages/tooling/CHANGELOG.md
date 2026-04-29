@@ -1,5 +1,11 @@
 # @richie-router/tooling
 
+## 0.1.8
+
+### Patch Changes
+
+- Add a router schema module resolver hook so route generation can load schema files without requiring project-local node_modules.
+
 ## 0.1.7
 
 ### Patch Changes
